@@ -1,0 +1,22 @@
+# Virtual Environments
+env/
+venv/
+.env
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Database
+*.db
+movies.db
+movies.db-journal
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
