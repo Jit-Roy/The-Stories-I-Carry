@@ -1,7 +1,8 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QPushButton
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
 import database
 from ui.movie_card import MovieCard, SeriesFolderCard
 from ui.components import FlowLayout, ResizableScrollArea
+from PySide6.QtCore import Qt
 
 class CollectionPage(QWidget):
     def __init__(self, change_status_callback, on_movie_click_callback):
@@ -13,34 +14,54 @@ class CollectionPage(QWidget):
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         
-        self.back_btn = QPushButton("← Back to All Watched")
-        self.back_btn.setProperty("class", "primary-btn")
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(10, 10, 10, 10)
+        
+        self.back_btn = QPushButton("← Back")
+        self.back_btn.setStyleSheet("background-color: transparent; color: white; font-weight: bold; font-size: 16px; border: none;")
+        self.back_btn.setCursor(Qt.PointingHandCursor)
         self.back_btn.clicked.connect(lambda: self.set_series_view(None))
         self.back_btn.hide()
-        self.layout.addWidget(self.back_btn)
+        
+        self.title_label = QLabel("My Collection")
+        self.title_label.setStyleSheet("font-size: 24px; font-weight: bold; color: white; margin-left: 10px;")
+        
+        header_layout.addWidget(self.back_btn)
+        header_layout.addWidget(self.title_label)
+        header_layout.addStretch()
+        self.layout.addLayout(header_layout)
+        
+        self.empty_label = QLabel("Your collection is empty. Discover movies and mark them as watched!")
+        self.empty_label.setStyleSheet("font-size: 16px; color: #A0AEC0; margin: 20px;")
+        self.empty_label.hide()
+        self.layout.addWidget(self.empty_label)
         
         self.flow = FlowLayout()
         container = QWidget()
         container.setLayout(self.flow)
-        scroll = ResizableScrollArea(self.flow)
-        scroll.setWidget(container)
-        self.layout.addWidget(scroll)
+        self.scroll = ResizableScrollArea(self.flow)
+        self.scroll.setWidget(container)
+        self.layout.addWidget(self.scroll)
         
     def set_series_view(self, series_name):
         self.current_series = series_name
         self.back_btn.setVisible(series_name is not None)
+        if series_name:
+            self.title_label.setText(f"Collection: {series_name}")
+        else:
+            self.title_label.setText("My Collection")
         self.load_lists()
         
-    def clear_layout(self):
-        while self.flow.count():
-            item = self.flow.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-                
     def load_lists(self):
-        self.clear_layout()
+        self.flow.clear()
         movies = database.get_movies("watched")
         
+        if not movies:
+            self.empty_label.show()
+            return
+        else:
+            self.empty_label.hide()
+            
         series_groups = {}
         standalone = []
         
@@ -62,3 +83,6 @@ class CollectionPage(QWidget):
                 self.flow.add_widget(folder)
             for m in standalone:
                 self.flow.add_widget(MovieCard(m, self.change_status, self.on_movie_click))
+                
+        self.flow.reflow(self.scroll.viewport().width() if self.scroll.viewport() else None)
+

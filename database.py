@@ -26,19 +26,29 @@ def init_db():
     except sqlite3.OperationalError:
         pass # Column already exists
         
+    try:
+        cursor.execute('ALTER TABLE movies ADD COLUMN vote_average REAL')
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        cursor.execute('ALTER TABLE movies ADD COLUMN release_date TEXT')
+    except sqlite3.OperationalError:
+        pass
+        
     
     conn.commit()
     conn.close()
 
-def add_movie(tmdb_id, title, poster_path, status, series_name=None):
+def add_movie(tmdb_id, title, poster_path, status, series_name=None, vote_average=None, release_date=None):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
     try:
         cursor.execute('''
-            INSERT INTO movies (tmdb_id, title, poster_path, status, series_name)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (tmdb_id, title, poster_path, status, series_name))
+            INSERT INTO movies (tmdb_id, title, poster_path, status, series_name, vote_average, release_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (tmdb_id, title, poster_path, status, series_name, vote_average, release_date))
         conn.commit()
         success = True
     except sqlite3.IntegrityError:
@@ -68,9 +78,9 @@ def get_movies(status=None):
     cursor = conn.cursor()
     
     if status:
-        cursor.execute('SELECT tmdb_id, title, poster_path, status, series_name FROM movies WHERE status = ? ORDER BY added_at DESC', (status,))
+        cursor.execute('SELECT tmdb_id, title, poster_path, status, series_name, vote_average, release_date FROM movies WHERE status = ? ORDER BY added_at DESC', (status,))
     else:
-        cursor.execute('SELECT tmdb_id, title, poster_path, status, series_name FROM movies ORDER BY added_at DESC')
+        cursor.execute('SELECT tmdb_id, title, poster_path, status, series_name, vote_average, release_date FROM movies ORDER BY added_at DESC')
         
     movies = cursor.fetchall()
     conn.close()
@@ -82,7 +92,9 @@ def get_movies(status=None):
             "title": m[1],
             "poster_path": m[2],
             "status": m[3],
-            "series_name": m[4]
+            "series_name": m[4],
+            "vote_average": m[5],
+            "release_date": m[6]
         }
         for m in movies
     ]

@@ -253,17 +253,26 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(self.previous_page_index)
 
     def change_status(self, movie_data, new_status):
-        details = tmdb_api.get_movie_details(movie_data["id"])
-        series_name = details.get("series_name") if details else None
-        database.add_movie(
-            movie_data["id"], 
-            movie_data["title"], 
-            movie_data["poster_path"], 
-            new_status,
-            series_name
-        )
-        # Update the dictionary so buttons reflect current state instantly
-        movie_data["status"] = new_status
+        if new_status == "remove":
+            database.remove_movie(movie_data["id"])
+            movie_data["status"] = None
+        else:
+            details = tmdb_api.get_movie_details(movie_data["id"])
+            series_name = details.get("series_name") if details else None
+            vote_average = details.get("vote_average") if details else movie_data.get("vote_average")
+            release_date = details.get("release_date") if details else movie_data.get("release_date")
+            
+            database.add_movie(
+                movie_data["id"], 
+                movie_data["title"], 
+                movie_data["poster_path"], 
+                new_status,
+                series_name,
+                vote_average,
+                release_date
+            )
+            # Update the dictionary so buttons reflect current state instantly
+            movie_data["status"] = new_status
         
         self.collection_page.load_lists()
         self.wishlist_page.load_lists()

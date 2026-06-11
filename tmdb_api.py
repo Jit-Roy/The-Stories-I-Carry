@@ -109,6 +109,15 @@ def get_movies_by_genre(genre_id, page=1):
     data = _make_request("/discover/movie", {"with_genres": genre_id, "language": "en-US", "page": page})
     return [_format_movie(m) for m in data.get("results", [])]
 
+def get_collection_poster(series_name):
+    data = _make_request("/search/collection", {"query": series_name, "language": "en-US", "page": 1})
+    results = data.get("results", [])
+    if results:
+        poster = results[0].get("poster_path")
+        return f"{IMAGE_BASE_URL}{poster}" if poster else None
+    return None
+
+
 import database
 
 def advanced_discover(params, page=1):

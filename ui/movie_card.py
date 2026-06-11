@@ -114,6 +114,12 @@ class MovieCard(QWidget):
             btn_later.clicked.connect(lambda: self.on_status_change(self.movie_data, "watch_later"))
             overlay_layout.addWidget(btn_later)
             
+        if status:
+            btn_remove = QPushButton("Remove")
+            btn_remove.setStyleSheet("background-color: #EF4444; color: white; border-radius: 6px; padding: 6px; font-weight: bold; margin-top: 5px;")
+            btn_remove.clicked.connect(lambda: self.on_status_change(self.movie_data, "remove"))
+            overlay_layout.addWidget(btn_remove)
+            
         self.overlay.hide()
         
         layout.addWidget(self.poster_container)
@@ -177,28 +183,81 @@ class MovieCard(QWidget):
 class SeriesFolderCard(QWidget):
     def __init__(self, series_name, movie_count, on_click):
         super().__init__()
+        self.series_name = series_name
         self.setObjectName("seriesFolder")
-        self.setFixedSize(160, 240)
+        self.setFixedSize(160, 280)
+        self.setCursor(Qt.PointingHandCursor)
         
         layout = QVBoxLayout()
-        layout.setAlignment(Qt.AlignCenter)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setAlignment(Qt.AlignTop)
+        
+        self.poster_container = QWidget()
+        self.poster_container.setFixedSize(160, 240)
+        poster_layout = QVBoxLayout(self.poster_container)
+        poster_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.poster_label = RoundedImage()
+        self.poster_label.setFixedSize(160, 240)
+        self.poster_label.setStyleSheet("background-color: #1A1C23; border-radius: 12px;")
+        poster_layout.addWidget(self.poster_label)
+        
+        self.overlay = QWidget(self.poster_container)
+        self.overlay.setFixedSize(160, 240)
+        self.overlay.setStyleSheet("background-color: rgba(0,0,0,0.65); border-radius: 12px;")
+        overlay_layout = QVBoxLayout(self.overlay)
+        overlay_layout.setAlignment(Qt.AlignCenter)
         
         title_label = QLabel(series_name)
         title_label.setWordWrap(True)
         title_label.setAlignment(Qt.AlignCenter)
-        title_label.setStyleSheet("font-weight: bold; font-size: 16px; color: #E2E8F0; border: none;")
+        title_label.setStyleSheet("font-weight: bold; font-size: 16px; color: #E2E8F0; border: none; background: transparent;")
         
         count_label = QLabel(f"{movie_count} movies")
         count_label.setAlignment(Qt.AlignCenter)
-        count_label.setStyleSheet("color: #1AE0A1; font-weight: bold; border: none;")
+        count_label.setStyleSheet("color: #1AE0A1; font-weight: bold; border: none; background: transparent;")
         
         open_btn = QPushButton("View Collection")
         open_btn.setProperty("class", "primary-btn")
         open_btn.clicked.connect(lambda: on_click(series_name))
         
-        layout.addWidget(title_label)
-        layout.addWidget(count_label)
-        layout.addSpacing(20)
-        layout.addWidget(open_btn)
+        overlay_layout.addWidget(title_label)
+        overlay_layout.addWidget(count_label)
+        overlay_layout.addSpacing(20)
+        overlay_layout.addWidget(open_btn)
         
+        layout.addWidget(self.poster_container)
         self.setLayout(layout)
+        
+        self.load_poster()
+
+    def load_poster(self):
+        class Signals(QObject):
+            finished = Signal(bytes)
+        
+        self.signals = Signals()
+        self.signals.finished.connect(self.on_image_loaded)
+        
+        class FullWorker(QRunnable):
+            def __init__(self, series, signals):
+                super().__init__()
+                self.series = series
+                self.signals = signals
+            def run(self):
+                import tmdb_api
+                url = tmdb_api.get_collection_poster(self.series)
+                if url:
+                    loader = ImageLoader(url)
+                    loader.signals = self.signals
+                    loader.run()
+                else:
+                    self.signals.finished.emit(b"")
+                    
+        QThreadPool.globalInstance().start(FullWorker(self.series_name, self.signals))
+        
+    def on_image_loaded(self, image_data):
+        if image_data:
+            img = QImage()
+            if img.loadFromData(image_data):
+                pixmap = QPixmap(img).scaled(160, 240, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                self.poster_label.setPixmap(pixmap)

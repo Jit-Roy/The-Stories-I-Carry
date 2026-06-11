@@ -1,10 +1,40 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QFrame, QApplication
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap, QImage, QPainter, QDesktopServices, QColor
+from PySide6.QtGui import QPixmap, QImage, QPainter, QDesktopServices, QColor, QPainterPath
 from ui.movie_card import RoundedImage, ImageLoader, MovieCard
 from ui.components import HorizontalCarousel
 from PySide6.QtCore import QThreadPool, QUrl
 import tmdb_api
+
+class BackdropFrame(QFrame):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.bg_pixmap = None
+
+    def setPixmap(self, pixmap):
+        self.bg_pixmap = pixmap
+        self.update()
+
+    def clearPixmap(self):
+        self.bg_pixmap = None
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.bg_pixmap:
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing)
+            
+            path = QPainterPath()
+            path.addRoundedRect(0, 0, self.width(), self.height(), 12, 12)
+            painter.setClipPath(path)
+            
+            scaled_pm = self.bg_pixmap.scaled(self.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+            x = (self.width() - scaled_pm.width()) // 2
+            y = (self.height() - scaled_pm.height()) // 2
+            
+            painter.drawPixmap(x, y, scaled_pm)
+            painter.fillRect(0, 0, self.width(), self.height(), QColor(0, 0, 0, 180))
 
 class MovieDetailPage(QWidget):
     def __init__(self, go_back_callback, change_status_callback, show_movie_detail_callback):
@@ -44,9 +74,9 @@ class MovieDetailPage(QWidget):
         # =====================================================================
         # 1. HERO BANNER (BACKDROP CONTAINER)
         # =====================================================================
-        self.backdrop_container = QFrame()
+        self.backdrop_container = BackdropFrame()
         self.backdrop_container.setMinimumHeight(380)
-        self.backdrop_container.setStyleSheet("background-color: #1A1C23; border-radius: 12px;")
+        self.backdrop_container.setStyleSheet("BackdropFrame { background-color: #1A1C23; border-radius: 12px; }")
         
         bd_layout = QHBoxLayout(self.backdrop_container)
         bd_layout.setContentsMargins(30, 30, 30, 30)
@@ -173,9 +203,7 @@ class MovieDetailPage(QWidget):
         
         # Clear previous images immediately
         self.poster_label.clear()
-        palette = self.backdrop_container.palette()
-        palette.setColor(self.backdrop_container.backgroundRole(), QColor("#1A1C23"))
-        self.backdrop_container.setPalette(palette)
+        self.backdrop_container.clearPixmap()
         
         self._clear_layout(self.trailers_layout)
         self._clear_layout(self.similar_layout)
@@ -292,20 +320,7 @@ class MovieDetailPage(QWidget):
         if image_data:
             img = QImage()
             if img.loadFromData(image_data):
-                pixmap = QPixmap(img).scaled(self.backdrop_container.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-                dark_pixmap = QPixmap(pixmap.size())
-                dark_pixmap.fill(Qt.transparent)
-                painter = QPainter(dark_pixmap)
-                painter.drawPixmap(0, 0, pixmap)
-                painter.fillRect(dark_pixmap.rect(), Qt.black)
-                painter.setOpacity(0.7)
-                painter.drawPixmap(0, 0, pixmap)
-                painter.end()
-                
-                palette = self.backdrop_container.palette()
-                palette.setBrush(self.backdrop_container.backgroundRole(), dark_pixmap)
-                self.backdrop_container.setPalette(palette)
-                self.backdrop_container.setAutoFillBackground(True)
+                self.backdrop_container.setPixmap(QPixmap.fromImage(img))
                 
     def on_poster_loaded(self, image_data):
         if image_data:
