@@ -13,7 +13,7 @@ def main():
     # Base global styles
     app.setStyleSheet("""
         QMainWindow { background-color: #0A0B10; }
-        QWidget { font-family: 'Inter', 'Segoe UI', Arial, sans-serif; color: #FFFFFF; }
+        QWidget { font-family: 'Inter', 'Segoe UI', Arial, sans-serif; font-size: 14px; color: #FFFFFF; }
     """)
             
     window = MainWindow()

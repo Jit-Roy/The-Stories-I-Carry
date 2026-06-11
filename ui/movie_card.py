@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, QUrl, QRunnable, QThreadPool, Signal, QObject
 import requests
 
 IMAGE_CACHE = {}
+ACTIVE_LOADERS = set()
 
 class ImageLoaderSignals(QObject):
     finished = Signal(bytes)
@@ -13,26 +14,32 @@ class ImageLoader(QRunnable):
         super().__init__()
         self.url = url
         self.signals = ImageLoaderSignals()
+        ACTIVE_LOADERS.add(self)
         
     @staticmethod
     def get_cached_image(url):
         return IMAGE_CACHE.get(url)
         
     def run(self):
-        if self.url in IMAGE_CACHE:
-            self.signals.finished.emit(IMAGE_CACHE[self.url])
-            return
-            
-        headers = {"User-Agent": "WorldsIveWatched/1.0"}
         try:
+            if self.url in IMAGE_CACHE:
+                self.signals.finished.emit(IMAGE_CACHE[self.url])
+                return
+                
+            headers = {"User-Agent": "WorldsIveWatched/1.0"}
             r = requests.get(self.url, headers=headers, timeout=10)
             if r.status_code == 200:
                 IMAGE_CACHE[self.url] = r.content
-                self.signals.finished.emit(r.content)
+                try: self.signals.finished.emit(r.content)
+                except RuntimeError: pass
             else:
-                self.signals.finished.emit(b"")
+                try: self.signals.finished.emit(b"")
+                except RuntimeError: pass
         except Exception:
-            self.signals.finished.emit(b"")
+            try: self.signals.finished.emit(b"")
+            except RuntimeError: pass
+        finally:
+            ACTIVE_LOADERS.discard(self)
 
 class RoundedImage(QLabel):
     def __init__(self, parent=None):

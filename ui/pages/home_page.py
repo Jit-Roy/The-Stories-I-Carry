@@ -58,7 +58,9 @@ class HomePage(QWidget):
             
     def apply_advanced_filters(self, params):
         fetch_params = params.copy()
-        self.on_view_all("Discover Results", lambda page: tmdb_api.advanced_discover(fetch_params, page=page), fetch_params)
+        query = fetch_params.get("query")
+        title = f"Search Results: '{query}'" if query else "Discover Results"
+        self.on_view_all(title, lambda page: tmdb_api.advanced_discover(fetch_params, page=page), fetch_params)
             
     def load_home_content(self):
         self.clear_layout()

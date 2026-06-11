@@ -10,6 +10,8 @@ BACKDROP_BASE_URL = "https://image.tmdb.org/t/p/w1280"
 
 import time
 
+_search_cache = {}
+
 def _make_request(endpoint, params=None, retries=5):
     if not TMDB_API_KEY:
         print("Error: TMDB_API_KEY is not set.")
@@ -110,16 +112,65 @@ def get_movies_by_genre(genre_id, page=1):
 import database
 
 def advanced_discover(params, page=1):
-    # Extract 'show_me' filter locally, it's not a TMDB param
+    params = params.copy()
     show_me = params.pop("show_me", None)
+    query = params.pop("query", None)
     
-    default_params = {"language": "en-US", "page": page}
-    default_params.update(params)
-    default_params["page"] = page
-    
-    data = _make_request("/discover/movie", default_params)
-    results = [_format_movie(m) for m in data.get("results", [])]
-    
+    if query:
+        cache_key = f"{query}_{params}_{show_me}"
+        if page == 1 or cache_key not in _search_cache:
+            search_params = {"query": query, "language": "en-US"}
+            filtered = []
+            for p in range(1, 4):
+                search_params["page"] = p
+                data = _make_request("/search/movie", search_params)
+                raw_movies = data.get("results", [])
+                
+                for m in raw_movies:
+                    genres_str = params.get("with_genres")
+                    if genres_str:
+                        req_genres = set(int(x) for x in genres_str.split(","))
+                        m_genres = set(m.get("genre_ids", []))
+                        if not m_genres.intersection(req_genres):
+                            continue
+                            
+                    min_rating = params.get("vote_average.gte")
+                    if min_rating and m.get("vote_average", 0) < float(min_rating):
+                        continue
+                            
+                    req_lang = params.get("with_original_language")
+                    if req_lang and m.get("original_language") != req_lang:
+                        continue
+                        
+                    date_gte = params.get("primary_release_date.gte")
+                    date_lte = params.get("primary_release_date.lte")
+                    if date_gte or date_lte:
+                        rel_date = m.get("release_date")
+                        if not rel_date:
+                            continue
+                        if date_gte and rel_date < date_gte:
+                            continue
+                        if date_lte and rel_date > date_lte:
+                            continue
+                            
+                    filtered.append(m)
+                    
+                if p >= data.get("total_pages", 1):
+                    break
+                    
+            _search_cache[cache_key] = filtered
+            
+        filtered = _search_cache[cache_key]
+        start_idx = (page - 1) * 20
+        end_idx = start_idx + 20
+        results = [_format_movie(m) for m in filtered[start_idx:end_idx]]
+        
+    else:
+        default_params = {"language": "en-US", "page": page}
+        default_params.update(params)
+        data = _make_request("/discover/movie", default_params)
+        results = [_format_movie(m) for m in data.get("results", [])]
+        
     if show_me == "unseen":
         watched_movies = database.get_movies("watched")
         watched_ids = {m["id"] for m in watched_movies}

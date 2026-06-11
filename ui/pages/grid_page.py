@@ -83,6 +83,13 @@ class GridPage(QWidget):
         import tmdb_api
         fetch_params = params.copy()
         self.fetch_func = lambda page: tmdb_api.advanced_discover(fetch_params, page=page)
+        
+        query = fetch_params.get("query")
+        if query:
+            self.title_label.setText(f"Search Results: '{query}'")
+        else:
+            self.title_label.setText("Discover Results")
+            
         self.clear_grid()
         self.current_page = 1
         self.load_more_btn.show()

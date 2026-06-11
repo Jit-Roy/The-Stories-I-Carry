@@ -111,6 +111,9 @@ class MainWindow(QMainWindow):
             self.collection_page.load_lists()
         elif index == 2:
             self.wishlist_page.load_lists()
+        elif index == 0:
+            import ui.components as components
+            self.home_page.filter_bar.set_params(components.GLOBAL_FILTER_STATE)
 
     def show_movie_detail(self, movie_data):
         self.previous_page_index = self.stack.currentIndex()
@@ -123,43 +126,130 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(4)
 
     def setup_top_nav(self):
-        from PySide6.QtWidgets import QLineEdit
-        
+        from PySide6.QtWidgets import (
+            QLineEdit, QHBoxLayout, QLabel, QFrame, QGraphicsDropShadowEffect
+        )
+        from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QByteArray
+        from PySide6.QtGui import QColor, QPixmap, QPainter, QShortcut, QKeySequence
+        from PySide6.QtSvg import QSvgRenderer
+
+        # ── Wrapper frame ──────────────────────────────────────────────────────
+        self.search_wrapper = QFrame()
+        self.search_wrapper.setObjectName("search_wrapper")
+        self.search_wrapper.setFixedHeight(48)
+
+        wrapper_layout = QHBoxLayout(self.search_wrapper)
+        wrapper_layout.setContentsMargins(16, 0, 16, 0)
+        wrapper_layout.setSpacing(12)
+
+        # ── SVG search icon ────────────────────────────────────────────────────
+        icon_svg = b"""<svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+            xmlns="http://www.w3.org/2000/svg">
+            <circle cx="6.5" cy="6.5" r="5" stroke="#4A5070" stroke-width="1.5"/>
+            <path d="M11 11L14 14" stroke="#4A5070" stroke-width="1.5"
+                stroke-linecap="round"/>
+        </svg>"""
+        renderer = QSvgRenderer(QByteArray(icon_svg))
+        icon_pix = QPixmap(16, 16)
+        icon_pix.fill(Qt.transparent)
+        p = QPainter(icon_pix)
+        renderer.render(p)
+        p.end()
+
+        icon_label = QLabel()
+        icon_label.setPixmap(icon_pix)
+        icon_label.setFixedSize(20, 20)
+        icon_label.setAlignment(Qt.AlignCenter)
+
+        # ── Thin vertical divider ──────────────────────────────────────────────
+        divider = QFrame()
+        divider.setFrameShape(QFrame.VLine)
+        divider.setFixedSize(1, 18)
+        divider.setStyleSheet("background: #252836; border: none;")
+
+        # ── Input ──────────────────────────────────────────────────────────────
         self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("🔍 Search movies, actors, keywords...")
+        self.search_bar.setPlaceholderText("Search movies, actors, keywords…")
         self.search_bar.setStyleSheet("""
             QLineEdit {
-                background-color: #11131A;
-                border: 1px solid #1E202B;
-                border-radius: 20px;
-                padding: 12px 20px;
-                color: white;
+                background: transparent;
+                border: none;
+                color: #DDE0FF;
                 font-size: 14px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #1AE0A1;
+                letter-spacing: 0.1px;
             }
         """)
         self.search_bar.returnPressed.connect(self.perform_search)
-        
-        self.center_layout.addWidget(self.search_bar)
-        self.center_layout.addSpacing(20)
+        self.search_bar.installEventFilter(self)
+
+        wrapper_layout.addWidget(icon_label)
+        wrapper_layout.addWidget(divider)
+        wrapper_layout.addWidget(self.search_bar, 1)
+
+        # ── Glow effect + animation ────────────────────────────────────────────
+        self.search_glow = QGraphicsDropShadowEffect()
+        self.search_glow.setBlurRadius(0)
+        self.search_glow.setColor(QColor(26, 224, 161, 70))
+        self.search_glow.setOffset(0, 0)
+        self.search_wrapper.setGraphicsEffect(self.search_glow)
+
+        self._glow_anim = QPropertyAnimation(self.search_glow, b"blurRadius")
+        self._glow_anim.setDuration(220)
+        self._glow_anim.setEasingCurve(QEasingCurve.OutCubic)
+
+        # ── Ctrl+K shortcut ────────────────────────────────────────────────────
+        QShortcut(QKeySequence("Ctrl+K"), self).activated.connect(
+            self.search_bar.setFocus
+        )
+
+        self._set_search_style(focused=False)
+
+        self.center_layout.addWidget(self.search_wrapper)
+        self.center_layout.addSpacing(5)
+
+
+    def _set_search_style(self, focused: bool):
+        border = "#1AE0A1" if focused else "#1E2030"
+        bg     = "#0B0D16" if focused else "#0D0F18"
+        self.search_wrapper.setStyleSheet(f"""
+            QFrame#search_wrapper {{
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 24px;
+            }}
+        """)
+        self._glow_anim.stop()
+        self._glow_anim.setStartValue(self.search_glow.blurRadius())
+        self._glow_anim.setEndValue(26.0 if focused else 0.0)
+        self._glow_anim.start()
+
+
+    def eventFilter(self, obj, event):
+        from PySide6.QtCore import QEvent
+        if obj is self.search_bar:
+            if event.type() == QEvent.Type.FocusIn:
+                self._set_search_style(focused=True)
+            elif event.type() == QEvent.Type.FocusOut:
+                self._set_search_style(focused=False)
+        return super().eventFilter(obj, event)
         
     def perform_search(self):
-        query = self.search_bar.text().strip()
-        if not query:
-            return
-        
-        self.show_grid_view(
-            f"Search Results: '{query}'", 
-            lambda page: tmdb_api.search_movies(query, page=page)
-        )
-        
+        # Hitting Enter in the search bar acts exactly like clicking "Discover"
+        if self.stack.currentIndex() == 4:
+            self.grid_page.filter_bar._apply()
+        else:
+            self.home_page.filter_bar._apply()
+
     def go_back_to_previous_page(self):
         # We don't want to go back to detail or grid if we are escaping it
         if self.previous_page_index in [3, 4]:
             self.previous_page_index = 0
             self.home_btn.setChecked(True)
+            
+        if self.previous_page_index == 0:
+            import ui.components as components
+            self.home_page.filter_bar.set_params(components.GLOBAL_FILTER_STATE)
+            
         self.stack.setCurrentIndex(self.previous_page_index)
 
     def change_status(self, movie_data, new_status):

@@ -380,7 +380,40 @@ class ResizableScrollArea(QScrollArea):
         if self.viewport():
             self.flow_layout.reflow(self.viewport().width())
 
-class MultiSelectComboBox(QComboBox):
+class FilterComboBox(QComboBox):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.currentTextChanged.connect(self._on_text_changed)
+
+    def _on_text_changed(self, text):
+        self.updateGeometry()
+
+    def sizeHint(self):
+        from PySide6.QtGui import QFont, QFontMetrics
+        font = QFont(self.font().family())
+        font.setPointSize(10)
+        font.setWeight(QFont.Weight.DemiBold)
+        fm = QFontMetrics(font)
+        
+        text = self.currentText()
+        if not text:
+            text = "      "
+            
+        text_width = fm.horizontalAdvance(text)
+        # 65px buffer accounts for left/right padding, arrow width, and Qt internal frame margins
+        width = text_width + 65
+        size = super().sizeHint()
+        size.setWidth(width)
+        return size
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+        
+    def showPopup(self):
+        self.view().setMinimumWidth(max(self.width(), 160))
+        super().showPopup()
+
+class MultiSelectComboBox(FilterComboBox):
     def __init__(self, placeholder="Select Options", parent=None):
         super().__init__(parent)
         self.placeholder = placeholder
@@ -391,7 +424,8 @@ class MultiSelectComboBox(QComboBox):
         placeholder_item.setFlags(Qt.NoItemFlags)
         self.model.appendRow(placeholder_item)
         
-        self.view().pressed.connect(self.handle_item_pressed)
+        self.view().viewport().installEventFilter(self)
+        self.model.itemChanged.connect(self._on_item_changed)
         
     def addItem(self, text, data=None):
         item = QStandardItem(text)
@@ -400,13 +434,25 @@ class MultiSelectComboBox(QComboBox):
         item.setData(data, Qt.UserRole)
         self.model.appendRow(item)
         
-    def handle_item_pressed(self, index):
-        item = self.model.itemFromIndex(index)
-        if item.flags() & Qt.ItemIsUserCheckable:
-            if item.checkState() == Qt.Checked:
-                item.setCheckState(Qt.Unchecked)
-            else:
-                item.setCheckState(Qt.Checked)
+    def eventFilter(self, obj, event):
+        from PySide6.QtCore import QEvent
+        if obj == self.view().viewport():
+            if event.type() == QEvent.Type.MouseButtonRelease:
+                index = self.view().indexAt(event.pos())
+                if index.isValid() and index.row() > 0:
+                    item = self.model.itemFromIndex(index)
+                    if item.flags() & Qt.ItemIsUserCheckable:
+                        new_state = Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked
+                        item.setCheckState(new_state)
+                    return True
+        return super().eventFilter(obj, event)
+
+    def hidePopup(self):
+        super().hidePopup()
+        self.setCurrentIndex(0)
+
+    def _on_item_changed(self, item):
+        if item.row() > 0:
             self._update_text()
 
     def _update_text(self):
@@ -416,6 +462,7 @@ class MultiSelectComboBox(QComboBox):
         else:
             self.model.item(0).setText(self.placeholder)
         self.setCurrentIndex(0)
+        self.updateGeometry()
         
     def currentDataList(self):
         res = []
@@ -426,12 +473,15 @@ class MultiSelectComboBox(QComboBox):
         return res
         
     def setChecked(self, data_list):
+        str_data_list = [str(x) for x in data_list]
+        self.model.blockSignals(True)
         for i in range(1, self.model.rowCount()):
             item = self.model.item(i)
-            if item.data(Qt.UserRole) in data_list:
+            if str(item.data(Qt.UserRole)) in str_data_list:
                 item.setCheckState(Qt.Checked)
             else:
                 item.setCheckState(Qt.Unchecked)
+        self.model.blockSignals(False)
         self._update_text()
         
     def count(self):
@@ -440,184 +490,364 @@ class MultiSelectComboBox(QComboBox):
 class DiscoverFilterBarSignals(QObject):
     filters_applied = Signal(dict)
 
+GLOBAL_FILTER_STATE = {}
+
 class DiscoverFilterBar(QWidget):
     def __init__(self):
         super().__init__()
         self.signals = DiscoverFilterBarSignals()
-        
-        filter_layout = QHBoxLayout(self)
-        filter_layout.setSpacing(10)
-        filter_layout.setContentsMargins(0, 0, 0, 10)
-        
-        combo_style = """
-            QComboBox {
-                background-color: #1A1C23;
-                border: 1px solid #2D3748;
-                color: #E2E8F0;
-                padding: 8px 15px;
-                border-radius: 15px;
-                font-weight: bold;
-            }
-            QComboBox::drop-down { border: none; }
-            QComboBox QAbstractItemView {
-                background-color: #1A1C23;
-                color: #E2E8F0;
-                selection-background-color: #1AE0A1;
-            }
+
+        # ── Design tokens ─────────────────────────────────────────────────────
+        BASE       = "#141720"   # control resting background
+        BASE_HVR   = "#1C2030"   # hovered control
+        BASE_OPEN  = "#11141C"   # combo open / active
+        BORDER     = "#242D42"   # resting border
+        BORDER_HVR = "#374D6B"   # hovered border
+        ACCENT     = "#1AE0A1"   # primary accent / focus ring
+        ACCENT2    = "#0EC8D8"   # gradient second stop
+        ACCENT_DK  = "#13BC89"   # accent pressed / hover
+        TEXT       = "#C4D0E0"   # control primary text
+        TEXT_MUTED = "#40506A"   # label "FROM" / "TO"
+        TEXT_SEL   = "#07111E"   # text on accent selection
+        POPUP_BG   = "#0F121A"   # dropdown popup bg
+        POPUP_BDR  = "#1E2840"   # dropdown popup border
+        BTN_TEXT   = "#061018"   # discover button text
+
+        import os
+        svg_path = os.path.join(os.path.dirname(__file__), "down_arrow.svg").replace("\\", "/")
+
+        # ── Shared combo style ─────────────────────────────────────────────────
+        combo_style = f"""
+            QComboBox {{
+                background-color: {BASE};
+                border: 1px solid {BORDER};
+                color: {TEXT};
+                padding: 6px 26px 6px 12px;
+                border-radius: 10px;
+                font-weight: 600;
+                font-size: 10pt;
+                selection-background-color: transparent;
+            }}
+            QComboBox:hover {{
+                border-color: {BORDER_HVR};
+                background-color: {BASE_HVR};
+                color: #DCE8F4;
+            }}
+            QComboBox:focus {{
+                border: 1px solid {BORDER_HVR};
+                color: #DCE8F4;
+            }}
+            QComboBox:on {{
+                border: 1px solid {BORDER_HVR};
+                background-color: {BASE_OPEN};
+            }}
+            QComboBox::drop-down {{
+                subcontrol-origin: padding;
+                subcontrol-position: center right;
+                width: 26px;
+                border: none;
+            }}
+            QComboBox::down-arrow {{
+                image: url("{svg_path}");
+                width: 12px;
+                height: 12px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {POPUP_BG};
+                color: {TEXT};
+                selection-background-color: {ACCENT};
+                selection-color: {TEXT_SEL};
+                border: 1px solid {POPUP_BDR};
+                border-radius: 10px;
+                padding: 5px;
+                outline: 0;
+            }}
+            QComboBox QAbstractItemView::item {{
+                min-height: 34px;
+                padding-left: 12px;
+                border-radius: 6px;
+            }}
+            QComboBox QAbstractItemView::item:hover {{
+                background-color: {BASE_HVR};
+                color: #DCE8F4;
+            }}
+            QComboBox QAbstractItemView::item:selected {{
+                background-color: {ACCENT};
+                color: {TEXT_SEL};
+            }}
         """
-        
+
+        year_combo_style = combo_style.replace("padding: 6px 26px 6px 12px;", "padding: 6px 20px 6px 10px;")
+
+        # ── Year range labels ──────────────────────────────────────────────────
+        label_style = f"""
+            QLabel {{
+                color: {TEXT_MUTED};
+                font-size: 10px;
+                font-weight: 700;
+            }}
+        """
+
+        # ── Thin vertical separator ────────────────────────────────────────────
+        def make_sep():
+            sep = QFrame()
+            sep.setFrameShape(QFrame.Shape.VLine)
+            sep.setFixedSize(1, 20)
+            sep.setStyleSheet(f"background-color: #1C2535; border: none;")
+            return sep
+
+        # ── Controls ───────────────────────────────────────────────────────────
+
         # SHOW ME
-        self.show_me_combo = QComboBox()
+        self.show_me_combo = FilterComboBox()
         self.show_me_combo.setStyleSheet(combo_style)
         self.show_me_combo.addItem("Everything", "all")
         self.show_me_combo.addItem("Movies I Haven't Seen", "unseen")
-        
-        # GENRES (Multi-Select)
+
+        # GENRES (multi-select, styled identically)
         self.genre_combo = MultiSelectComboBox("All Genres")
         self.genre_combo.setStyleSheet(combo_style)
-        
+
         # SORT
-        self.sort_combo = QComboBox()
+        self.sort_combo = FilterComboBox()
         self.sort_combo.setStyleSheet(combo_style)
-        self.sort_combo.addItem("Most Popular", "popularity.desc")
-        self.sort_combo.addItem("Highest Rated", "vote_average.desc")
-        self.sort_combo.addItem("Newest Releases", "primary_release_date.desc")
-        self.sort_combo.addItem("Highest Revenue", "revenue.desc")
-        
+        self.sort_combo.addItem("Most Popular",       "popularity.desc")
+        self.sort_combo.addItem("Highest Rated",      "vote_average.desc")
+        self.sort_combo.addItem("Newest Releases",    "primary_release_date.desc")
+        self.sort_combo.addItem("Highest Revenue",    "revenue.desc")
+
         # LANGUAGE
-        self.language_combo = QComboBox()
+        self.language_combo = FilterComboBox()
         self.language_combo.setStyleSheet(combo_style)
         self.language_combo.addItem("Any Language", None)
-        self.language_combo.addItem("English", "en")
-        self.language_combo.addItem("Spanish", "es")
-        self.language_combo.addItem("French", "fr")
-        self.language_combo.addItem("Korean", "ko")
-        self.language_combo.addItem("Japanese", "ja")
-        self.language_combo.addItem("Hindi", "hi")
-        
-        # YEAR RANGE
+        self.language_combo.addItem("English",      "en")
+        self.language_combo.addItem("Spanish",      "es")
+        self.language_combo.addItem("French",       "fr")
+        self.language_combo.addItem("Korean",       "ko")
+        self.language_combo.addItem("Japanese",     "ja")
+        self.language_combo.addItem("Hindi",        "hi")
+
+        # ── YEAR RANGE
         import datetime
-        current_year = datetime.datetime.now().year
+        current_year = datetime.datetime.now().year        # YEAR (FROM / TO)
+        self.from_year = FilterComboBox()
+        self.to_year   = FilterComboBox()
+
+        for combo in (self.from_year, self.to_year):
+            combo.setStyleSheet(year_combo_style)
+            combo.setMaxVisibleItems(8)
+            combo.addItem("Any", None)
+            for y in range(current_year + 5, 1899, -1):
+                combo.addItem(str(y), y)
+
+        self.from_year.setCurrentIndex(0)
+        self.to_year.setCurrentIndex(0)
+
+        from_label = QLabel("FROM")
+        to_label   = QLabel("TO")
         
-        self.from_year = QSpinBox()
-        self.to_year = QSpinBox()
+        from PySide6.QtWidgets import QSizePolicy
         
-        for spin in (self.from_year, self.to_year):
-            spin.setRange(1900, current_year + 5)
-            spin.setSpecialValueText("Any")
-            spin.setStyleSheet("""
-                QSpinBox {
-                    background-color: #1A1C23;
-                    border: 1px solid #2D3748;
-                    color: #E2E8F0;
-                    padding: 8px 15px;
-                    border-radius: 15px;
-                    font-weight: bold;
-                }
-            """)
+        for lbl in (from_label, to_label):
+            lbl.setStyleSheet(label_style)
+            lbl.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             
-        self.from_year.setValue(1900)
-        self.to_year.setValue(current_year + 5)
-        
+        for combo in (self.from_year, self.to_year):
+            combo.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+
         year_layout = QHBoxLayout()
-        year_layout.setSpacing(5)
-        year_layout.addWidget(QLabel("From"))
+        year_layout.setSpacing(6)
+        year_layout.setContentsMargins(0, 0, 0, 0)
+        year_layout.addWidget(from_label)
         year_layout.addWidget(self.from_year)
-        year_layout.addWidget(QLabel("To"))
+        year_layout.addWidget(to_label)
         year_layout.addWidget(self.to_year)
-        
+
         # RATING
-        
-        self.rating_combo = QComboBox()
+        self.rating_combo = FilterComboBox()
         self.rating_combo.setStyleSheet(combo_style)
-        self.rating_combo.addItem("Any Rating", None)
-        self.rating_combo.addItem("8+ Stars", 8.0)
-        self.rating_combo.addItem("7+ Stars", 7.0)
-        self.rating_combo.addItem("6+ Stars", 6.0)
-        
+        self.rating_combo.addItem("Any Rating",   None)
+        self.rating_combo.addItem("8+  ★ Stars",  8.0)
+        self.rating_combo.addItem("7+  ★ Stars",  7.0)
+        self.rating_combo.addItem("6+  ★ Stars",  6.0)
+
+        # DISCOVER BUTTON — gradient, no border, strong presence
         self.discover_btn = QPushButton("Discover")
-        self.discover_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #1AE0A1;
-                color: #0F172A;
-                border-radius: 15px;
-                padding: 8px 20px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background-color: #14B886; }
+        self.discover_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {ACCENT},
+                    stop:1 {ACCENT2}
+                );
+                color: {BTN_TEXT};
+                border-radius: 10px;
+                padding: 8px 18px;
+                font-weight: 700;
+                font-size: 10pt;
+                border: none;
+            }}
+            QPushButton:hover {{
+                background-color: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {ACCENT_DK},
+                    stop:1 #0AB6C4
+                );
+            }}
+            QPushButton:pressed {{
+                background-color: {ACCENT_DK};
+                padding-top: 10px;
+                padding-bottom: 8px;
+            }}
         """)
-        self.discover_btn.setCursor(Qt.PointingHandCursor)
+        self.discover_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.discover_btn.clicked.connect(self._apply)
-        
+
+        # ── Layout ─────────────────────────────────────────────────────────────
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(5)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # 1. Scrollable filter container
+        scroll_area = QScrollArea()
+        scroll_area.setFixedHeight(50)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setStyleSheet("""
+            QScrollArea { border: none; background: transparent; }
+        """)
+
+        scroll_content = QWidget()
+        scroll_content.setStyleSheet("background: transparent;")
+        filter_layout = QHBoxLayout(scroll_content)
+        filter_layout.setSpacing(10)
+        filter_layout.setContentsMargins(0, 0, 0, 0)
+
         filter_layout.addWidget(self.show_me_combo)
         filter_layout.addWidget(self.genre_combo)
         filter_layout.addWidget(self.sort_combo)
         filter_layout.addWidget(self.language_combo)
         filter_layout.addLayout(year_layout)
         filter_layout.addWidget(self.rating_combo)
-        filter_layout.addWidget(self.discover_btn)
         filter_layout.addStretch()
+
+        scroll_area.setWidget(scroll_content)
+        main_layout.addWidget(scroll_area)
+
+        # 2. Bottom row: Discover button
+        bottom_layout = QHBoxLayout()
+        bottom_layout.addWidget(self.discover_btn)
+        bottom_layout.addStretch()
         
+        main_layout.addLayout(bottom_layout)
+        
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+
+    # ── Unchanged logic below ──────────────────────────────────────────────────
+
     def populate_genres(self, genres):
-        if self.genre_combo.count() > 1: return
+        if self.genre_combo.count() > 1:
+            return
         for genre in genres:
             self.genre_combo.addItem(genre["name"], genre["id"])
-            
+
     def set_params(self, params):
-        if not params: return
-        
+        if params is None:
+            params = {}
+            
+        main_win = self.window()
+        if hasattr(main_win, "search_bar"):
+            if "query" in params:
+                main_win.search_bar.setText(params["query"])
+            else:
+                main_win.search_bar.clear()
+
         if "show_me" in params:
             idx = self.show_me_combo.findData(params["show_me"])
-            if idx >= 0: self.show_me_combo.setCurrentIndex(idx)
-            
+            self.show_me_combo.setCurrentIndex(max(0, idx))
+        else:
+            self.show_me_combo.setCurrentIndex(0)
+
         if "with_genres" in params:
-            genres_list = params["with_genres"].split(",")
+            genres_list = [int(x) for x in params["with_genres"].split(",")]
             self.genre_combo.setChecked(genres_list)
-            
+        else:
+            self.genre_combo.setChecked([])
+
         if "with_original_language" in params:
             idx = self.language_combo.findData(params["with_original_language"])
-            if idx >= 0: self.language_combo.setCurrentIndex(idx)
-            
+            self.language_combo.setCurrentIndex(max(0, idx))
+        else:
+            self.language_combo.setCurrentIndex(0)
+
         if "sort_by" in params:
             idx = self.sort_combo.findData(params["sort_by"])
-            if idx >= 0: self.sort_combo.setCurrentIndex(idx)
-            
+            self.sort_combo.setCurrentIndex(max(0, idx))
+        else:
+            self.sort_combo.setCurrentIndex(0)
+
         if "primary_release_date.gte" in params:
             year_start = int(params["primary_release_date.gte"].split("-")[0])
-            self.from_year.setValue(year_start)
-            
+            idx = self.from_year.findData(year_start)
+            self.from_year.setCurrentIndex(max(0, idx))
+        else:
+            self.from_year.setCurrentIndex(0)
+
         if "primary_release_date.lte" in params:
             year_end = int(params["primary_release_date.lte"].split("-")[0])
-            self.to_year.setValue(year_end)
-            
+            idx = self.to_year.findData(year_end)
+            self.to_year.setCurrentIndex(max(0, idx))
+        else:
+            self.to_year.setCurrentIndex(0)
+
         if "vote_average.gte" in params:
             idx = self.rating_combo.findData(params["vote_average.gte"])
-            if idx >= 0: self.rating_combo.setCurrentIndex(idx)
-            
+            self.rating_combo.setCurrentIndex(max(0, idx))
+        else:
+            self.rating_combo.setCurrentIndex(0)
+
     def _apply(self):
         params = {}
-        
+
         show_me = self.show_me_combo.currentData()
-        if show_me: params["show_me"] = show_me
-        
+        if show_me:
+            params["show_me"] = show_me
+
         genres_selected = self.genre_combo.currentDataList()
-        if genres_selected: params["with_genres"] = ",".join(map(str, genres_selected))
-            
+        if genres_selected:
+            params["with_genres"] = ",".join(map(str, genres_selected))
+
         sort_by = self.sort_combo.currentData()
-        if sort_by: params["sort_by"] = sort_by
-        
+        if sort_by:
+            params["sort_by"] = sort_by
+
         lang = self.language_combo.currentData()
-        if lang: params["with_original_language"] = lang
-            
-        if self.from_year.value() > self.from_year.minimum():
-            params["primary_release_date.gte"] = f"{self.from_year.value()}-01-01"
-            
-        if self.to_year.value() < self.to_year.maximum():
-            params["primary_release_date.lte"] = f"{self.to_year.value()}-12-31"
-                
+        if lang:
+            params["with_original_language"] = lang
+
+        from_y = self.from_year.currentData()
+        if from_y is not None:
+            params["primary_release_date.gte"] = f"{from_y}-01-01"
+
+        to_y = self.to_year.currentData()
+        if to_y is not None:
+            params["primary_release_date.lte"] = f"{to_y}-12-31"
+
         rating = self.rating_combo.currentData()
         if rating:
             params["vote_average.gte"] = rating
             params["vote_count.gte"] = 100
-            
+
+        # Hook up the main search bar to combine keyword and filters
+        main_win = self.window()
+        if hasattr(main_win, "search_bar"):
+            query = main_win.search_bar.text().strip()
+            if query:
+                params["query"] = query
+
+        global GLOBAL_FILTER_STATE
+        GLOBAL_FILTER_STATE.clear()
+        GLOBAL_FILTER_STATE.update(params)
+
         self.signals.filters_applied.emit(params)
