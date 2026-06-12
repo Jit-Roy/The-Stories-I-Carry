@@ -95,36 +95,45 @@ class MainWindow(QMainWindow):
                 color: #FFFFFF; background-color: #1A1C23;
             }
             QPushButton:checked {
-                color: #FFFFFF; background-color: #032541; border-left: 3px solid #1AE0A1;
+                color: #1AE0A1; background-color: rgba(255, 255, 255, 0.05); border-left: 3px solid #1AE0A1;
                 border-top-left-radius: 0px; border-bottom-left-radius: 0px;
             }
         """
         
         self.home_btn = QPushButton("  Home")
-        self.home_btn.setIcon(QIcon("assets/icons/home.svg"))
         self.home_btn.setStyleSheet(nav_style)
         self.home_btn.setCheckable(True)
-        self.home_btn.setChecked(True)
         self.home_btn.clicked.connect(lambda: self.switch_page(0, self.home_btn))
         layout.addWidget(self.home_btn)
         
         self.col_btn = QPushButton("  Collection")
-        self.col_btn.setIcon(QIcon("assets/icons/collection.svg"))
         self.col_btn.setStyleSheet(nav_style)
         self.col_btn.setCheckable(True)
         self.col_btn.clicked.connect(lambda: self.switch_page(1, self.col_btn))
         layout.addWidget(self.col_btn)
         
         self.wish_btn = QPushButton("  Wishlist")
-        self.wish_btn.setIcon(QIcon("assets/icons/wishlist.svg"))
         self.wish_btn.setStyleSheet(nav_style)
         self.wish_btn.setCheckable(True)
         self.wish_btn.clicked.connect(lambda: self.switch_page(2, self.wish_btn))
         layout.addWidget(self.wish_btn)
         
+        self.home_btn.toggled.connect(self.update_nav_icons)
+        self.col_btn.toggled.connect(self.update_nav_icons)
+        self.wish_btn.toggled.connect(self.update_nav_icons)
+        
+        self.home_btn.setChecked(True)
+        self.update_nav_icons()
+        
         layout.addStretch()
         self.layout.addWidget(self.left_sidebar)
         
+    def update_nav_icons(self):
+        from PySide6.QtGui import QIcon
+        self.home_btn.setIcon(QIcon("assets/icons/home_active.svg" if self.home_btn.isChecked() else "assets/icons/home.svg"))
+        self.col_btn.setIcon(QIcon("assets/icons/collection_active.svg" if self.col_btn.isChecked() else "assets/icons/collection.svg"))
+        self.wish_btn.setIcon(QIcon("assets/icons/wishlist_active.svg" if self.wish_btn.isChecked() else "assets/icons/wishlist.svg"))
+
     def switch_page(self, index, active_btn):
         self.stack.setCurrentIndex(index)
         self.previous_page_index = index
