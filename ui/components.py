@@ -243,6 +243,7 @@ class HeroBanner(QWidget):
 
 class HeroCarousel(QWidget):
     def __init__(self, movies, on_explore, on_status_change=None):
+        self.on_status_change = on_status_change  # kept for refresh
         super().__init__()
         self.movies = movies
         self.setFixedHeight(350)
@@ -329,6 +330,14 @@ class HeroCarousel(QWidget):
         self.anim.start()
         if restart_timer:
             self.timer.start(6000)
+
+    def refresh_status(self):
+        """Re-read DB status for every slide and update their buttons."""
+        import tmdb_api
+        db_map = {m["id"]: m["status"] for m in __import__("database").get_movies()}
+        for slide in self.slides:
+            slide.movie["status"] = db_map.get(slide.movie["id"])
+            slide.update_buttons()
 
 from PySide6.QtWidgets import QGridLayout
 

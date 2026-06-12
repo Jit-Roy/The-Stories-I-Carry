@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QStackedWidget
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QRunnable, QThreadPool, Signal, QObject
 import database
 import tmdb_api
 
@@ -9,45 +9,85 @@ from ui.pages.wishlist_page import WishlistPage
 from ui.pages.detail_page import MovieDetailPage
 from ui.pages.grid_page import GridPage
 
+
+# ---------------------------------------------------------------------------
+# Worker: fetch details + write DB off the GUI thread
+# ---------------------------------------------------------------------------
+class _StatusWorkerSignals(QObject):
+    finished = Signal(object, str)   # movie_data dict, new_status
+
+
+class _StatusWorker(QRunnable):
+    """Used when change_status is triggered from a carousel card (no cached details)."""
+    def __init__(self, movie_data, new_status):
+        super().__init__()
+        self.movie_data = movie_data
+        self.new_status = new_status
+        self.signals = _StatusWorkerSignals()
+
+    def run(self):
+        try:
+            details = tmdb_api.get_movie_details(self.movie_data["id"])
+            series_name = details.get("series_name") if details else None
+            vote_average = details.get("vote_average") if details else self.movie_data.get("vote_average")
+            release_date = details.get("release_date") if details else self.movie_data.get("release_date")
+        except Exception:
+            series_name = None
+            vote_average = self.movie_data.get("vote_average")
+            release_date = self.movie_data.get("release_date")
+
+        database.add_movie(
+            self.movie_data["id"],
+            self.movie_data["title"],
+            self.movie_data["poster_path"],
+            self.new_status,
+            series_name,
+            vote_average,
+            release_date,
+        )
+        tmdb_api.invalidate_db_cache()
+        self.signals.finished.emit(self.movie_data, self.new_status)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("The Stories I Carry")
         self.setMinimumSize(1200, 800)
         self.page_history = []
-        
+
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.layout = QHBoxLayout(self.central_widget)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.setSpacing(0)
-        
+
         self.setup_left_sidebar()
-        
+
         self.center_area = QWidget()
         self.center_layout = QVBoxLayout(self.center_area)
         self.center_layout.setContentsMargins(30, 20, 30, 20)
-        
+
         self.setup_top_nav()
-        
+
         self.stack = QStackedWidget()
         self.stack.currentChanged.connect(self._on_page_changed)
-        
+
         self.home_page = HomePage(self.change_status, self.show_movie_detail, self.show_grid_view)
         self.collection_page = CollectionPage(self.change_status, self.show_movie_detail)
         self.wishlist_page = WishlistPage(self.change_status, self.show_movie_detail)
         self.detail_page = MovieDetailPage(self.go_back_to_previous_page, self.change_status, self.show_movie_detail)
         self.grid_page = GridPage(self.go_back_to_previous_page, self.change_status, self.show_movie_detail)
-        
-        self.stack.addWidget(self.home_page)      # 0
+
+        self.stack.addWidget(self.home_page)       # 0
         self.stack.addWidget(self.collection_page) # 1
         self.stack.addWidget(self.wishlist_page)   # 2
         self.stack.addWidget(self.detail_page)     # 3
         self.stack.addWidget(self.grid_page)       # 4
-        
+
         self.center_layout.addWidget(self.stack)
         self.layout.addWidget(self.center_area, 1)
-        
+
         # Load initial data for lists
         self.collection_page.load_lists()
         self.wishlist_page.load_lists()
@@ -61,31 +101,31 @@ class MainWindow(QMainWindow):
         layout.setAlignment(Qt.AlignTop)
         # Reduced right margin to 10 to give the title text more room
         layout.setContentsMargins(20, 30, 10, 20)
-        
+
         logo_container = QWidget()
         logo_layout = QHBoxLayout(logo_container)
         logo_layout.setContentsMargins(0, 0, 0, 10)
         logo_layout.setAlignment(Qt.AlignLeft)
-        
+
         from PySide6.QtGui import QIcon
-        
+
         logo_icon = QLabel()
         logo_icon.setStyleSheet("background-color: transparent; border: none;")
         logo_icon.setPixmap(QIcon("assets/icons/main_logo.svg").pixmap(36, 36))
-        
+
         logo_text = QLabel("The Stories I Carry")
         logo_text.setStyleSheet("font-size: 15px; font-weight: bold; color: white; background-color: transparent; border: none;")
-        
+
         logo_layout.addWidget(logo_icon)
         logo_layout.addSpacing(6)
         logo_layout.addWidget(logo_text)
         logo_layout.addStretch()
-        
+
         layout.addWidget(logo_container)
         layout.addSpacing(30)
-        
+
         from PySide6.QtGui import QIcon
-        
+
         nav_style = """
             QPushButton {
                 background-color: transparent; color: #A0AEC0; text-align: left;
@@ -99,35 +139,35 @@ class MainWindow(QMainWindow):
                 border-top-left-radius: 0px; border-bottom-left-radius: 0px;
             }
         """
-        
+
         self.home_btn = QPushButton("  Home")
         self.home_btn.setStyleSheet(nav_style)
         self.home_btn.setCheckable(True)
         self.home_btn.clicked.connect(lambda: self.switch_page(0, self.home_btn))
         layout.addWidget(self.home_btn)
-        
+
         self.col_btn = QPushButton("  Collection")
         self.col_btn.setStyleSheet(nav_style)
         self.col_btn.setCheckable(True)
         self.col_btn.clicked.connect(lambda: self.switch_page(1, self.col_btn))
         layout.addWidget(self.col_btn)
-        
+
         self.wish_btn = QPushButton("  Wishlist")
         self.wish_btn.setStyleSheet(nav_style)
         self.wish_btn.setCheckable(True)
         self.wish_btn.clicked.connect(lambda: self.switch_page(2, self.wish_btn))
         layout.addWidget(self.wish_btn)
-        
+
         self.home_btn.toggled.connect(self.update_nav_icons)
         self.col_btn.toggled.connect(self.update_nav_icons)
         self.wish_btn.toggled.connect(self.update_nav_icons)
-        
+
         self.home_btn.setChecked(True)
         self.update_nav_icons()
-        
+
         layout.addStretch()
         self.layout.addWidget(self.left_sidebar)
-        
+
     def update_nav_icons(self):
         from PySide6.QtGui import QIcon
         self.home_btn.setIcon(QIcon("assets/icons/home_active.svg" if self.home_btn.isChecked() else "assets/icons/home.svg"))
@@ -155,7 +195,7 @@ class MainWindow(QMainWindow):
         self.page_history.append((current_index, state))
         self.detail_page.load_movie(movie_data)
         self.stack.setCurrentIndex(3)
-        
+
     def show_grid_view(self, title, fetch_func, initial_params=None):
         current_index = self.stack.currentIndex()
         state = self.detail_page.movie_data if current_index == 3 else None
@@ -245,7 +285,6 @@ class MainWindow(QMainWindow):
         self.center_layout.addWidget(self.search_wrapper)
         self.center_layout.addSpacing(5)
 
-
     def _set_search_style(self, focused: bool):
         border = "#1AE0A1" if focused else "#1E2030"
         bg     = "#0B0D16" if focused else "#0D0F18"
@@ -261,7 +300,6 @@ class MainWindow(QMainWindow):
         self._glow_anim.setEndValue(26.0 if focused else 0.0)
         self._glow_anim.start()
 
-
     def eventFilter(self, obj, event):
         from PySide6.QtCore import QEvent
         if obj is self.search_bar:
@@ -270,7 +308,7 @@ class MainWindow(QMainWindow):
             elif event.type() == QEvent.Type.FocusOut:
                 self._set_search_style(focused=False)
         return super().eventFilter(obj, event)
-        
+
     def perform_search(self):
         # Hitting Enter in the search bar acts exactly like clicking "Discover"
         if self.stack.currentIndex() == 4:
@@ -283,13 +321,13 @@ class MainWindow(QMainWindow):
             self.home_btn.setChecked(True)
             self.stack.setCurrentIndex(0)
             return
-            
+
         prev_index, state = self.page_history.pop()
-        
+
         self.home_btn.setChecked(False)
         self.col_btn.setChecked(False)
         self.wish_btn.setChecked(False)
-        
+
         if prev_index == 0:
             self.home_btn.setChecked(True)
             import ui.components as components
@@ -302,11 +340,11 @@ class MainWindow(QMainWindow):
             self.wishlist_page.load_lists()
         elif prev_index == 3 and state:
             self.detail_page.load_movie(state)
-            
+
         self.stack.setCurrentIndex(prev_index)
 
     def _on_page_changed(self, index):
-        if hasattr(self, 'search_wrapper'):
+        if hasattr(self, "search_wrapper"):
             if index == 0:
                 self.search_wrapper.setVisible(True)
             elif index == 4:
@@ -315,30 +353,56 @@ class MainWindow(QMainWindow):
             else:
                 self.search_wrapper.setVisible(False)
 
+    # ------------------------------------------------------------------
+    # change_status — non-blocking; uses cached details when available
+    # ------------------------------------------------------------------
     def change_status(self, movie_data, new_status):
         if new_status == "remove":
             database.remove_movie(movie_data["id"])
             movie_data["status"] = None
-        else:
-            details = tmdb_api.get_movie_details(movie_data["id"])
-            series_name = details.get("series_name") if details else None
-            vote_average = details.get("vote_average") if details else movie_data.get("vote_average")
-            release_date = details.get("release_date") if details else movie_data.get("release_date")
-            
+            tmdb_api.invalidate_db_cache()
+            self._post_status_update(movie_data, new_status)
+            return
+
+        # Optimistic UI update so buttons feel instant
+        movie_data["status"] = new_status
+        if self.stack.currentIndex() == 3:
+            self.detail_page.update_buttons()
+
+        # If we already have the details from the open detail page, use them directly
+        cached_details = (
+            self.detail_page._last_details
+            if self.stack.currentIndex() == 3
+            and self.detail_page._last_details is not None
+            and self.detail_page._last_details.get("id") == movie_data["id"]
+            else None
+        )
+
+        if cached_details:
+            # Synchronous DB write (very fast, local SQLite)
             database.add_movie(
-                movie_data["id"], 
-                movie_data["title"], 
-                movie_data["poster_path"], 
+                movie_data["id"],
+                movie_data["title"],
+                movie_data["poster_path"],
                 new_status,
-                series_name,
-                vote_average,
-                release_date
+                cached_details.get("series_name"),
+                cached_details.get("vote_average") or movie_data.get("vote_average"),
+                cached_details.get("release_date") or movie_data.get("release_date"),
             )
-            # Update the dictionary so buttons reflect current state instantly
-            movie_data["status"] = new_status
-        
+            tmdb_api.invalidate_db_cache()
+            self._post_status_update(movie_data, new_status)
+        else:
+            # Triggered from a carousel card — fetch details asynchronously
+            worker = _StatusWorker(movie_data, new_status)
+            worker.signals.finished.connect(self._post_status_update)
+            QThreadPool.globalInstance().start(worker)
+
+    def _post_status_update(self, movie_data, new_status):
+        """Refresh dependent views after a status change."""
         self.collection_page.load_lists()
         self.wishlist_page.load_lists()
         if self.stack.currentIndex() == 3:
-            # Refresh detail page buttons if we are on it
             self.detail_page.update_buttons()
+        # Keep the hero banner buttons in sync no matter where the change came from
+        if hasattr(self.home_page, "hero_carousel") and self.home_page.hero_carousel is not None:
+            self.home_page.hero_carousel.refresh_status()
