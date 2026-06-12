@@ -61,6 +61,7 @@ class RoundedImage(QLabel):
             
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
         
         path = QPainterPath()
         path.addRoundedRect(0, 0, self.width(), self.height(), 12, 12)
@@ -221,7 +222,11 @@ class MovieCard(QWidget):
         if image_data:
             img = QImage()
             if img.loadFromData(image_data):
-                pixmap = QPixmap(img).scaled(160, 240, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                dpr = self.devicePixelRatioF()
+                target_w = int(160 * dpr)
+                target_h = int(240 * dpr)
+                pixmap = QPixmap(img).scaled(target_w, target_h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                pixmap.setDevicePixelRatio(dpr)
                 self.poster_label.setPixmap(pixmap)
         else:
             if not hasattr(self, "image_retries"):
@@ -315,5 +320,9 @@ class SeriesFolderCard(QWidget):
         if image_data:
             img = QImage()
             if img.loadFromData(image_data):
-                pixmap = QPixmap(img).scaled(160, 240, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                dpr = self.devicePixelRatioF()
+                target_w = int(160 * dpr)
+                target_h = int(240 * dpr)
+                pixmap = QPixmap(img).scaled(target_w, target_h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                pixmap.setDevicePixelRatio(dpr)
                 self.poster_label.setPixmap(pixmap)
