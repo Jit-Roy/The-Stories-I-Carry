@@ -150,12 +150,16 @@ class MainWindow(QMainWindow):
             self.home_page.filter_bar.set_params(components.GLOBAL_FILTER_STATE)
 
     def show_movie_detail(self, movie_data):
-        self.page_history.append(self.stack.currentIndex())
+        current_index = self.stack.currentIndex()
+        state = self.detail_page.movie_data if current_index == 3 else None
+        self.page_history.append((current_index, state))
         self.detail_page.load_movie(movie_data)
         self.stack.setCurrentIndex(3)
         
     def show_grid_view(self, title, fetch_func, initial_params=None):
-        self.page_history.append(self.stack.currentIndex())
+        current_index = self.stack.currentIndex()
+        state = self.detail_page.movie_data if current_index == 3 else None
+        self.page_history.append((current_index, state))
         self.grid_page.load_grid(title, fetch_func, initial_params)
         self.stack.setCurrentIndex(4)
 
@@ -280,7 +284,7 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentIndex(0)
             return
             
-        prev_index = self.page_history.pop()
+        prev_index, state = self.page_history.pop()
         
         self.home_btn.setChecked(False)
         self.col_btn.setChecked(False)
@@ -296,6 +300,8 @@ class MainWindow(QMainWindow):
         elif prev_index == 2:
             self.wish_btn.setChecked(True)
             self.wishlist_page.load_lists()
+        elif prev_index == 3 and state:
+            self.detail_page.load_movie(state)
             
         self.stack.setCurrentIndex(prev_index)
 
