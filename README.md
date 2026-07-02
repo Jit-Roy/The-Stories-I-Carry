@@ -21,7 +21,7 @@ A personal movie database application created to keep track of the movies I have
 ## Screenshot
 
 <div align="center">
-  <img src="docs/Screenshot%20.png" alt="Application Screenshot" width="90%">
+  <img src="docs/Screenshot.png" alt="Application Screenshot" width="90%">
 </div>
 
 ---
