@@ -25,3 +25,10 @@ Thumbs.db
 # Build output
 build/
 dist/
+
+# Downloads and Temp Files
+Downloads/
+downloads_history.json
+*.part
+*.ytdl
+*.m3u8

@@ -9,6 +9,7 @@ from ui.pages.wishlist_page import WishlistPage
 from ui.pages.detail_page import MovieDetailPage
 from ui.pages.grid_page import GridPage
 from ui.pages.analytics_page import AnalyticsPage
+from ui.pages.downloads_page import DownloadsPage
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +93,7 @@ class MainWindow(QMainWindow):
         self.detail_page = MovieDetailPage(self.go_back_to_previous_page, self.change_status, self.show_movie_detail)
         self.grid_page = GridPage(self.go_back_to_previous_page, self.change_status, self.show_movie_detail)
         self.analytics_page = AnalyticsPage(self.show_grid_view)
+        self.downloads_page = DownloadsPage()
 
         self.stack.addWidget(self.home_page)       # 0
         self.stack.addWidget(self.collection_page) # 1
@@ -99,6 +101,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.detail_page)     # 3
         self.stack.addWidget(self.grid_page)       # 4
         self.stack.addWidget(self.analytics_page)  # 5
+        self.stack.addWidget(self.downloads_page)  # 6
 
         self.center_layout.addWidget(self.stack)
         self.layout.addWidget(self.center_area, 1)
@@ -183,10 +186,17 @@ class MainWindow(QMainWindow):
         self.analytics_btn.clicked.connect(lambda: self.switch_page(5, self.analytics_btn))
         layout.addWidget(self.analytics_btn)
 
+        self.downloads_btn = QPushButton("  Downloads")
+        self.downloads_btn.setStyleSheet(nav_style)
+        self.downloads_btn.setCheckable(True)
+        self.downloads_btn.clicked.connect(lambda: self.switch_page(6, self.downloads_btn))
+        layout.addWidget(self.downloads_btn)
+
         self.home_btn.toggled.connect(self.update_nav_icons)
         self.col_btn.toggled.connect(self.update_nav_icons)
         self.wish_btn.toggled.connect(self.update_nav_icons)
         self.analytics_btn.toggled.connect(self.update_nav_icons)
+        self.downloads_btn.toggled.connect(self.update_nav_icons)
 
         self.home_btn.setChecked(True)
         self.update_nav_icons()
@@ -200,6 +210,7 @@ class MainWindow(QMainWindow):
         self.col_btn.setIcon(QIcon("assets/icons/collection_active.svg" if self.col_btn.isChecked() else "assets/icons/collection.svg"))
         self.wish_btn.setIcon(QIcon("assets/icons/wishlist_active.svg" if self.wish_btn.isChecked() else "assets/icons/wishlist.svg"))
         self.analytics_btn.setIcon(QIcon("assets/icons/analytics_active.svg" if self.analytics_btn.isChecked() else "assets/icons/analytics.svg"))
+        self.downloads_btn.setIcon(QIcon("assets/icons/downloads_active.svg" if self.downloads_btn.isChecked() else "assets/icons/downloads.svg"))
 
     def switch_page(self, index, active_btn):
         self.stack.setCurrentIndex(index)
@@ -208,6 +219,7 @@ class MainWindow(QMainWindow):
         self.col_btn.setChecked(False)
         self.wish_btn.setChecked(False)
         self.analytics_btn.setChecked(False)
+        self.downloads_btn.setChecked(False)
         active_btn.setChecked(True)
         if index == 1:
             self.collection_page.load_lists()
@@ -407,6 +419,8 @@ class MainWindow(QMainWindow):
         self.home_btn.setChecked(False)
         self.col_btn.setChecked(False)
         self.wish_btn.setChecked(False)
+        self.analytics_btn.setChecked(False)
+        self.downloads_btn.setChecked(False)
 
         if prev_index == 0:
             self.home_btn.setChecked(True)
