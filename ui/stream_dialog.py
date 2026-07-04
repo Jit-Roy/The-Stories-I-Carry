@@ -34,10 +34,10 @@ class StreamSelectionDialog(QDialog):
             QComboBox QAbstractItemView {
                 background-color: #2D3748;
                 color: white;
-                selection-background-color: #8a2be2;
+                selection-background-color: #14B885;
             }
             QPushButton {
-                background-color: #8a2be2;
+                background-color: #14B885;
                 color: white;
                 border-radius: 6px;
                 padding: 8px 16px;
@@ -46,7 +46,7 @@ class StreamSelectionDialog(QDialog):
                 border: none;
             }
             QPushButton:hover {
-                background-color: #9b4dca;
+                background-color: #1AE0A1;
             }
             QPushButton#btnCancel {
                 background-color: transparent;

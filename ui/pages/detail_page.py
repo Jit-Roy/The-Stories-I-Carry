@@ -2,8 +2,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QFrame, QApplication
 )
-from PySide6.QtCore import Qt, QThreadPool, QUrl, QRunnable, Signal, QObject
-from PySide6.QtGui import QPixmap, QImage, QPainter, QDesktopServices, QColor, QPainterPath
+from PySide6.QtCore import Qt, QThreadPool, QUrl, QRunnable, Signal, QObject, QSize, QTimer, QRectF
+from PySide6.QtGui import QPixmap, QImage, QPainter, QDesktopServices, QColor, QPainterPath, QIcon, QPen
 from ui.movie_card import RoundedImage, ImageLoader, MovieCard
 from ui.components import HorizontalCarousel
 from ui.stream_dialog import StreamSelectionDialog
@@ -33,6 +33,82 @@ class _DetailWorker(QRunnable):
             print(f"DetailWorker error: {e}")
             details = None
         self.signals.finished.emit(details)
+
+class AnimatedDownloadButton(QPushButton):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(40, 40)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setStyleSheet("""
+            QPushButton { background-color: transparent; border-radius: 20px; border: none; }
+            QPushButton:hover { background-color: rgba(255, 255, 255, 0.1); }
+        """)
+        import os
+        self._icon_idle = QIcon(os.path.join("assets", "icons", "download.svg"))
+        self._icon_done = QIcon(os.path.join("assets", "icons", "check.svg"))
+        
+        self.state = "idle" # idle, loading, downloading, completed
+        self.progress = 0
+        self.angle = 0
+        
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._rotate)
+        self.timer.setInterval(30)
+        
+    def _rotate(self):
+        self.angle = (self.angle + 10) % 360
+        self.update()
+        
+    def set_state(self, state, progress=0):
+        if self.state != state:
+            self.state = state
+            if state == "loading":
+                self.timer.start()
+            else:
+                self.timer.stop()
+        self.progress = progress
+        self.update()
+        
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        rect = self.rect()
+        
+        if self.state == "loading":
+            pen = QPen(QColor("#1AE0A1"))
+            pen.setWidth(3)
+            pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(pen)
+            span_angle = 120 * 16
+            start_angle = -self.angle * 16
+            margin = 8
+            arc_rect = QRectF(margin, margin, rect.width() - 2*margin, rect.height() - 2*margin)
+            painter.drawArc(arc_rect, start_angle, span_angle)
+            
+        elif self.state == "downloading":
+            pen_bg = QPen(QColor(255, 255, 255, 30))
+            pen_bg.setWidth(3)
+            painter.setPen(pen_bg)
+            margin = 2
+            ring_rect = QRectF(margin, margin, rect.width() - 2*margin, rect.height() - 2*margin)
+            painter.drawEllipse(ring_rect)
+            
+            pen_fg = QPen(QColor("#1AE0A1"))
+            pen_fg.setWidth(3)
+            pen_fg.setCapStyle(Qt.RoundCap)
+            painter.setPen(pen_fg)
+            span_angle = int((self.progress / 100.0) * 360 * 16)
+            start_angle = 90 * 16
+            painter.drawArc(ring_rect, start_angle, -span_angle)
+            
+            icon_rect = rect.adjusted(10, 10, -10, -10)
+            self._icon_idle.paint(painter, icon_rect)
+            
+        elif self.state == "completed":
+            self._icon_done.paint(painter, rect.adjusted(8, 8, -8, -8))
+        else:
+            self._icon_idle.paint(painter, rect.adjusted(8, 8, -8, -8))
 
 
 # ---------------------------------------------------------------------------
@@ -145,9 +221,17 @@ class MovieDetailPage(QWidget):
         bd_layout.addWidget(self.poster_label)
 
         info_layout = QVBoxLayout()
+        title_row = QHBoxLayout()
         self.title_label = QLabel()
         self.title_label.setStyleSheet("font-size: 32px; font-weight: bold; color: white;")
         self.title_label.setWordWrap(True)
+        title_row.addWidget(self.title_label)
+        title_row.addStretch()
+
+        self.btn_download = AnimatedDownloadButton()
+        self.btn_download.setToolTip("Download Movie")
+        self.btn_download.clicked.connect(self.download_movie)
+        title_row.addWidget(self.btn_download, alignment=Qt.AlignTop)
 
         self.tagline_label = QLabel()
         self.tagline_label.setStyleSheet("font-size: 16px; font-style: italic; color: #A0AEC0;")
@@ -194,24 +278,12 @@ class MovieDetailPage(QWidget):
             )
         )
 
-        self.btn_download = QPushButton("↓ Download")
-        self.btn_download.setCursor(Qt.PointingHandCursor)
-        self.btn_download.setStyleSheet("""
-            QPushButton {
-                background-color: #8a2be2; color: white; border-radius: 6px;
-                padding: 10px 24px; font-weight: bold; font-size: 14px; border: none;
-            }
-            QPushButton:hover { background-color: #9b4dca; }
-        """)
-        self.btn_download.clicked.connect(self.download_movie)
-
         action_layout.addWidget(self.btn_play)
-        action_layout.addWidget(self.btn_download)
         action_layout.addWidget(self.btn_watched)
         action_layout.addWidget(self.btn_later)
         action_layout.addStretch()
 
-        info_layout.addWidget(self.title_label)
+        info_layout.addLayout(title_row)
         info_layout.addWidget(self.tagline_label)
         info_layout.addWidget(self.meta_label)
         info_layout.addSpacing(10)
@@ -304,7 +376,8 @@ class MovieDetailPage(QWidget):
             status = dl_info.get("status", "")
             if status == "Paused":
                 manager.resume_download(tmdb_id)
-                self.btn_download.setText("Initializing...")
+                self.btn_download.setToolTip("Initializing...")
+                self.btn_download.set_state("loading")
                 return
             elif status == "Pending selection...":
                 pass # allow re-opening dialog if needed
@@ -326,7 +399,8 @@ class MovieDetailPage(QWidget):
             selection = dialog.get_selection()
             if selection and selection.get('m3u8_url'):
                 # Pass to download_manager to do the fast probe and trigger stream selection
-                self.btn_download.setText("Fetching options...")
+                self.btn_download.setToolTip("Fetching options...")
+                self.btn_download.set_state("loading")
                 self.download_manager.start_fast_probe(
                     movie_data=self.movie_data,
                     m3u8_url=selection['m3u8_url'],
@@ -367,7 +441,8 @@ class MovieDetailPage(QWidget):
         self._clear_layout(self.trailers_layout)
         self._clear_layout(self.similar_layout)
         self.facts_label.setText("")
-        self.btn_download.setText("↓ Download")
+        self.btn_download.setToolTip("Download Movie")
+        self.btn_download.set_state("idle")
         self.btn_download.setEnabled(True)
         self.update_buttons()
 
@@ -525,61 +600,49 @@ class MovieDetailPage(QWidget):
         tmdb_id = self.movie_data.get("id") if self.movie_data else None
         if tmdb_id:
             dl_info = self.download_manager.active_downloads.get(tmdb_id)
+            if not dl_info:
+                # Try integer cast just in case
+                try:
+                    dl_info = self.download_manager.active_downloads.get(int(tmdb_id))
+                except:
+                    pass
+                if not dl_info:
+                    try:
+                        dl_info = self.download_manager.active_downloads.get(str(tmdb_id))
+                    except:
+                        pass
+            
             if dl_info:
                 status = dl_info.get("status", "")
                 if status == "Completed":
-                    self.btn_download.setText("✓ Downloaded")
-                    self.btn_download.setStyleSheet("""
-                        QPushButton { background-color: #14B885; color: #0F172A; border-radius: 6px; padding: 10px 24px; font-weight: bold; font-size: 14px; border: none; }
-                        QPushButton:hover { background-color: #1AE0A1; }
-                    """)
+                    self.btn_download.setToolTip("Downloaded")
+                    self.btn_download.set_state("completed")
                     self.btn_download.setEnabled(True)
                 elif status.startswith("Error"):
-                    self.btn_download.setText("Download Failed")
-                    self.btn_download.setStyleSheet("""
-                        QPushButton { background-color: #E50914; color: white; border-radius: 6px; padding: 10px 24px; font-weight: bold; font-size: 14px; border: none; }
-                        QPushButton:hover { background-color: #F40612; }
-                    """)
+                    self.btn_download.setToolTip("Download Failed")
+                    self.btn_download.set_state("idle")
                     self.btn_download.setEnabled(True)
                 elif status == "Paused":
-                    self.btn_download.setText("▶ Resume")
-                    self.btn_download.setStyleSheet("""
-                        QPushButton { background-color: #ff9800; color: white; border-radius: 6px; padding: 10px 24px; font-weight: bold; font-size: 14px; border: none; }
-                        QPushButton:hover { background-color: #e68a00; }
-                    """)
+                    self.btn_download.setToolTip("Resume Download")
+                    self.btn_download.set_state("idle")
                     self.btn_download.setEnabled(True)
                 else:
                     percent = int(dl_info.get("percent", 0))
                     if percent > 0:
-                        self.btn_download.setText(f"⏸ Downloading... {percent}%")
+                        self.btn_download.setToolTip(f"Downloading... {percent}%")
                         self.btn_download.setEnabled(True)
-                        self.btn_download.setStyleSheet(f"""
-                            QPushButton {{
-                                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8a2be2, stop:{percent/100.0} #8a2be2, stop:{percent/100.0} #3c1464, stop:1 #3c1464);
-                                color: white; border-radius: 6px; padding: 10px 24px; font-weight: bold; font-size: 14px; border: none;
-                            }}
-                            QPushButton:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #9b4dca, stop:{percent/100.0} #9b4dca, stop:{percent/100.0} #4d1a80, stop:1 #4d1a80); }}
-                        """)
+                        self.btn_download.set_state("downloading", percent)
                     else:
-                        self.btn_download.setText(f"⏸ {status}")
+                        self.btn_download.setToolTip(status)
                         self.btn_download.setEnabled(True)
-                        self.btn_download.setStyleSheet("""
-                            QPushButton { background-color: #8a2be2; color: white; border-radius: 6px; padding: 10px 24px; font-weight: bold; font-size: 14px; border: none; }
-                            QPushButton:hover { background-color: #9b4dca; }
-                        """)
+                        self.btn_download.set_state("loading")
             else:
-                self.btn_download.setText("↓ Download")
-                self.btn_download.setStyleSheet("""
-                    QPushButton {
-                        background-color: #8a2be2; color: white; border-radius: 6px;
-                        padding: 10px 24px; font-weight: bold; font-size: 14px; border: none;
-                    }
-                    QPushButton:hover { background-color: #9b4dca; }
-                """)
+                self.btn_download.setToolTip("Download Movie")
+                self.btn_download.set_state("idle")
                 self.btn_download.setEnabled(True)
 
     def _on_probe_finished(self, tmdb_id, results, error_msg):
-        if self.movie_data and self.movie_data.get("id") == tmdb_id:
+        if self.movie_data and str(self.movie_data.get("id")) == str(tmdb_id):
             if not error_msg and results:
                 dialog = StreamSelectionDialog(results, self)
                 if dialog.exec() == QDialog.Accepted:
@@ -601,24 +664,20 @@ class MovieDetailPage(QWidget):
                 self.update_buttons()
 
     def _on_download_progress(self, tmdb_id, dl_info):
-        if self.movie_data and self.movie_data.get("id") == tmdb_id:
+        if self.movie_data and str(self.movie_data.get("id")) == str(tmdb_id):
             percent = int(dl_info.get("percent", 0))
-            if percent > 0:
-                self.btn_download.setText(f"⏸ Downloading... {percent}%")
-                self.btn_download.setStyleSheet(f"""
-                    QPushButton {{
-                        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8a2be2, stop:{percent/100.0} #8a2be2, stop:{percent/100.0} #3c1464, stop:1 #3c1464);
-                        color: white; border-radius: 6px; padding: 10px 24px; font-weight: bold; font-size: 14px; border: none;
-                    }}
-                    QPushButton:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #9b4dca, stop:{percent/100.0} #9b4dca, stop:{percent/100.0} #4d1a80, stop:1 #4d1a80); }}
-                """)
+            if percent >= 0:
+                self.btn_download.setToolTip(f"Downloading... {percent}%")
+                self.btn_download.set_state("downloading", percent)
 
     def _on_download_status(self, tmdb_id, status):
-        if self.movie_data and self.movie_data.get("id") == tmdb_id:
+        if self.movie_data and str(self.movie_data.get("id")) == str(tmdb_id):
             if status == "Completed" or status.startswith("Error") or status == "Paused":
                 self.update_buttons() # Let update_buttons handle the colors for end states
             else:
-                self.btn_download.setText(f"⏸ {status}")
+                self.btn_download.setToolTip(status)
+                if status in ["Probing...", "Initializing...", "Downloading...", "Pending selection..."]:
+                    self.btn_download.set_state("loading")
 
     # ------------------------------------------------------------------
     # Image callbacks

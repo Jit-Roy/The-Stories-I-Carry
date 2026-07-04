@@ -1258,6 +1258,14 @@ def download_media(url, page_url=None, cookies=None, headers=None, progress_call
         if progress_callback:
             progress_callback({"type": "log", "message": msg})
 
+    # Monkey-patch yt-dlp to allow ANY file extension since streaming sites obfuscate them
+    try:
+        import yt_dlp.utils._utils
+        if hasattr(yt_dlp.utils._utils, '_UnsafeExtensionError'):
+            yt_dlp.utils._utils._UnsafeExtensionError.sanitize_extension = classmethod(lambda cls, ext, **kwargs: ext)
+    except Exception:
+        pass
+
     try:
         cookie_header = ""
         if cookies:

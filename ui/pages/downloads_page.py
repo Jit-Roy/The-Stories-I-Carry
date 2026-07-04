@@ -19,13 +19,13 @@ class DownloadItemWidget(QFrame):
         self.setObjectName("DownloadItem")
         self.setStyleSheet("""
             QFrame#DownloadItem {
-                background-color: rgba(30, 30, 40, 180);
+                background-color: transparent;
                 border-radius: 12px;
-                border: 1px solid rgba(255, 255, 255, 20);
+                border: none;
             }
             QFrame#DownloadItem:hover {
-                background-color: rgba(40, 40, 50, 200);
-                border: 1px solid rgba(255, 255, 255, 40);
+                background-color: rgba(255, 255, 255, 5);
+                border: none;
             }
         """)
         
@@ -73,7 +73,7 @@ class DownloadItemWidget(QFrame):
                 background-color: rgba(255, 255, 255, 10);
             }
             QProgressBar::chunk {
-                background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #8a2be2, stop:1 #ff00ff);
+                background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #14B885, stop:1 #1AE0A1);
                 border-radius: 4px;
             }
         """)
@@ -187,14 +187,16 @@ class DownloadItemWidget(QFrame):
             self.action_btn.clicked.connect(self.open_folder)
             self.action_btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #8a2be2;
-                    color: white;
-                    border: none;
+                    background-color: transparent;
+                    color: #14B885;
+                    border: 2px solid #14B885;
                     border-radius: 18px;
                     font-weight: bold;
                 }
                 QPushButton:hover {
-                    background-color: #9b4dca;
+                    background-color: rgba(20, 184, 133, 0.1);
+                    color: #1AE0A1;
+                    border: 2px solid #1AE0A1;
                 }
             """)
         elif status == "Paused":
@@ -209,7 +211,7 @@ class DownloadItemWidget(QFrame):
             self.action_btn.setText("Pause")
             self.progress_bar.setStyleSheet("""
                 QProgressBar::chunk {
-                    background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #8a2be2, stop:1 #ff00ff);
+                    background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #14B885, stop:1 #1AE0A1);
                     border-radius: 4px;
                 }
             """)
