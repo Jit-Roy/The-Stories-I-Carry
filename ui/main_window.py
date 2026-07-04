@@ -10,6 +10,7 @@ from ui.pages.detail_page import MovieDetailPage
 from ui.pages.grid_page import GridPage
 from ui.pages.analytics_page import AnalyticsPage
 from ui.pages.downloads_page import DownloadsPage
+from ui.pages.settings_page import SettingsPage
 
 
 class TabStack(QStackedWidget):
@@ -104,10 +105,13 @@ class MainWindow(QMainWindow):
         self.wishlist_page = WishlistPage(self.change_status, self.show_movie_detail)
         self.analytics_page = AnalyticsPage(self.show_grid_view)
         self.downloads_page = DownloadsPage()
+        self.settings_page = SettingsPage()
+        
+        self.settings_page.api_key_changed.connect(self._on_api_key_changed)
 
         # Create a TabStack for each main tab
         self.tab_stacks = {}
-        for idx, main_widget in enumerate([self.home_page, self.collection_page, self.wishlist_page, None, None, self.analytics_page, self.downloads_page]):
+        for idx, main_widget in enumerate([self.home_page, self.collection_page, self.wishlist_page, None, None, self.analytics_page, self.downloads_page, self.settings_page]):
             if main_widget is None:
                 self.main_stack.addWidget(QWidget()) # padding
                 continue
@@ -226,10 +230,18 @@ class MainWindow(QMainWindow):
         self.analytics_btn.toggled.connect(self.update_nav_icons)
         self.downloads_btn.toggled.connect(self.update_nav_icons)
 
+        layout.addStretch()
+        
+        self.settings_btn = QPushButton("  Settings")
+        self.settings_btn.setStyleSheet(nav_style)
+        self.settings_btn.setCheckable(True)
+        self.settings_btn.clicked.connect(lambda: self.switch_page(7, self.settings_btn))
+        self.settings_btn.toggled.connect(self.update_nav_icons)
+        layout.addWidget(self.settings_btn)
+
         self.home_btn.setChecked(True)
         self.update_nav_icons()
-
-        layout.addStretch()
+        
         self.layout.addWidget(self.left_sidebar)
 
     def update_nav_icons(self):
@@ -239,6 +251,7 @@ class MainWindow(QMainWindow):
         self.wish_btn.setIcon(QIcon("assets/icons/wishlist_active.svg" if self.wish_btn.isChecked() else "assets/icons/wishlist.svg"))
         self.analytics_btn.setIcon(QIcon("assets/icons/analytics_active.svg" if self.analytics_btn.isChecked() else "assets/icons/analytics.svg"))
         self.downloads_btn.setIcon(QIcon("assets/icons/downloads_active.svg" if self.downloads_btn.isChecked() else "assets/icons/downloads.svg"))
+        self.settings_btn.setIcon(QIcon("assets/icons/settings_active.svg" if self.settings_btn.isChecked() else "assets/icons/settings.svg"))
 
     def switch_page(self, index, active_btn):
         self.main_stack.setCurrentIndex(index)
@@ -247,6 +260,7 @@ class MainWindow(QMainWindow):
         self.wish_btn.setChecked(False)
         self.analytics_btn.setChecked(False)
         self.downloads_btn.setChecked(False)
+        self.settings_btn.setChecked(False)
         active_btn.setChecked(True)
         
         # If we switch to a tab and it happens to be at its root page (0), we can refresh lists
@@ -261,6 +275,11 @@ class MainWindow(QMainWindow):
             elif index == 0:
                 import ui.components as components
                 self.home_page.filter_bar.set_params(components.GLOBAL_FILTER_STATE)
+
+    def _on_api_key_changed(self):
+        """Called when the user saves a new TMDB API Key from the settings page."""
+        self.home_page.load_home_content()
+        self.analytics_dirty = True
 
     def show_movie_detail(self, movie_data):
         t_stack = self.main_stack.currentWidget()

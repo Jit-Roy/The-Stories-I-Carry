@@ -9,6 +9,22 @@ BASE_URL = "https://api.tmdb.org/3"
 IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500"
 BACKDROP_BASE_URL = "https://image.tmdb.org/t/p/w1280"
 
+def get_api_key():
+    return TMDB_API_KEY
+
+def set_api_key(new_key):
+    global TMDB_API_KEY
+    import dotenv
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if not os.path.exists(env_path):
+        open(env_path, 'w').close()
+    dotenv.set_key(env_path, "TMDB_API_KEY", new_key)
+    TMDB_API_KEY = new_key
+    
+    # Clear caches so any previously failed requests (due to bad key) can be retried immediately
+    _search_cache.clear()
+    _details_cache.clear()
+
 # ---------------------------------------------------------------------------
 # Per-session caches
 # ---------------------------------------------------------------------------
