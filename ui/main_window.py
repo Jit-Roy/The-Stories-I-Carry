@@ -12,6 +12,17 @@ from ui.pages.analytics_page import AnalyticsPage
 from ui.pages.downloads_page import DownloadsPage
 
 
+class TabStack(QStackedWidget):
+    def __init__(self, tab_index, parent=None):
+        super().__init__(parent)
+        self.tab_index = tab_index
+        self.page_history = []
+        self.is_text_search = False
+        self.main_page = None
+        self.detail_page = None
+        self.grid_page = None
+
+
 # ---------------------------------------------------------------------------
 # Worker: fetch details + write DB off the GUI thread
 # ---------------------------------------------------------------------------
@@ -68,7 +79,8 @@ class MainWindow(QMainWindow):
         from PySide6.QtGui import QIcon
         self.setWindowIcon(QIcon("assets/icons/main_logo.ico"))
         
-        self.page_history = []
+        self.all_detail_pages = []
+        self.all_grid_pages = []
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -84,26 +96,42 @@ class MainWindow(QMainWindow):
 
         self.setup_top_nav()
 
-        self.stack = QStackedWidget()
-        self.stack.currentChanged.connect(self._on_page_changed)
+        self.main_stack = QStackedWidget()
+        self.main_stack.currentChanged.connect(self._on_tab_changed)
 
         self.home_page = HomePage(self.change_status, self.show_movie_detail, self.show_grid_view)
         self.collection_page = CollectionPage(self.change_status, self.show_movie_detail)
         self.wishlist_page = WishlistPage(self.change_status, self.show_movie_detail)
-        self.detail_page = MovieDetailPage(self.go_back_to_previous_page, self.change_status, self.show_movie_detail)
-        self.grid_page = GridPage(self.go_back_to_previous_page, self.change_status, self.show_movie_detail)
         self.analytics_page = AnalyticsPage(self.show_grid_view)
         self.downloads_page = DownloadsPage()
 
-        self.stack.addWidget(self.home_page)       # 0
-        self.stack.addWidget(self.collection_page) # 1
-        self.stack.addWidget(self.wishlist_page)   # 2
-        self.stack.addWidget(self.detail_page)     # 3
-        self.stack.addWidget(self.grid_page)       # 4
-        self.stack.addWidget(self.analytics_page)  # 5
-        self.stack.addWidget(self.downloads_page)  # 6
+        # Create a TabStack for each main tab
+        self.tab_stacks = {}
+        for idx, main_widget in enumerate([self.home_page, self.collection_page, self.wishlist_page, None, None, self.analytics_page, self.downloads_page]):
+            if main_widget is None:
+                self.main_stack.addWidget(QWidget()) # padding
+                continue
+            
+            t_stack = TabStack(idx)
+            t_stack.addWidget(main_widget) # Inner Index 0
+            t_stack.main_page = main_widget
+            
+            # Add dedicated Detail and Grid pages if applicable
+            if idx in (0, 1, 2, 5):
+                detail = MovieDetailPage(self.go_back_to_previous_page, self.change_status, self.show_movie_detail)
+                grid = GridPage(self.go_back_to_previous_page, self.change_status, self.show_movie_detail)
+                t_stack.addWidget(detail) # Inner Index 1
+                t_stack.addWidget(grid)   # Inner Index 2
+                t_stack.detail_page = detail
+                t_stack.grid_page = grid
+                self.all_detail_pages.append(detail)
+                self.all_grid_pages.append(grid)
+                
+            t_stack.currentChanged.connect(self._on_inner_page_changed)
+            self.tab_stacks[idx] = t_stack
+            self.main_stack.addWidget(t_stack)
 
-        self.center_layout.addWidget(self.stack)
+        self.center_layout.addWidget(self.main_stack)
         self.layout.addWidget(self.center_area, 1)
 
         # Load initial data for lists
@@ -213,32 +241,39 @@ class MainWindow(QMainWindow):
         self.downloads_btn.setIcon(QIcon("assets/icons/downloads_active.svg" if self.downloads_btn.isChecked() else "assets/icons/downloads.svg"))
 
     def switch_page(self, index, active_btn):
-        self.stack.setCurrentIndex(index)
-        self.page_history.clear()
+        self.main_stack.setCurrentIndex(index)
         self.home_btn.setChecked(False)
         self.col_btn.setChecked(False)
         self.wish_btn.setChecked(False)
         self.analytics_btn.setChecked(False)
         self.downloads_btn.setChecked(False)
         active_btn.setChecked(True)
-        if index == 1:
-            self.collection_page.load_lists()
-        elif index == 2:
-            self.wishlist_page.load_lists()
-        elif index == 5:
-            self.analytics_page.load_data()
-        elif index == 0:
-            import ui.components as components
-            self.home_page.filter_bar.set_params(components.GLOBAL_FILTER_STATE)
+        
+        # If we switch to a tab and it happens to be at its root page (0), we can refresh lists
+        t_stack = self.tab_stacks.get(index)
+        if t_stack and t_stack.currentIndex() == 0:
+            if index == 1:
+                self.collection_page.load_lists()
+            elif index == 2:
+                self.wishlist_page.load_lists()
+            elif index == 5:
+                self.analytics_page.load_data()
+            elif index == 0:
+                import ui.components as components
+                self.home_page.filter_bar.set_params(components.GLOBAL_FILTER_STATE)
 
     def show_movie_detail(self, movie_data):
-        current_index = self.stack.currentIndex()
-        state = self.detail_page.movie_data if current_index == 3 else None
-        self.page_history.append((current_index, state))
+        t_stack = self.main_stack.currentWidget()
+        if not isinstance(t_stack, TabStack) or not t_stack.detail_page: return
+        
+        current_index = t_stack.currentIndex()
+        state = t_stack.detail_page.movie_data if current_index == 1 else None
+        t_stack.page_history.append((current_index, state))
+        
         # Inject fresh DB status so buttons are correct from the very first render
         tmdb_api.inject_db_status([movie_data])
-        self.detail_page.load_movie(movie_data)
-        self.stack.setCurrentIndex(3)
+        t_stack.detail_page.load_movie(movie_data)
+        t_stack.setCurrentIndex(1)
 
     def show_analytics_discovery(self, category, value):
         import tmdb_api
@@ -285,15 +320,19 @@ class MainWindow(QMainWindow):
         self.show_grid_view(title, fetch_func, initial_params=params)
 
     def show_grid_view(self, title, fetch_func, initial_params=None):
-        current_index = self.stack.currentIndex()
-        state = self.detail_page.movie_data if current_index == 3 else None
-        self.page_history.append((current_index, state))
+        t_stack = self.main_stack.currentWidget()
+        if not isinstance(t_stack, TabStack) or not t_stack.grid_page:
+            # If triggered from somewhere without a grid (like downloads), force switch to Home
+            self.switch_page(0, self.home_btn)
+            t_stack = self.tab_stacks[0]
+            
+        current_index = t_stack.currentIndex()
+        state = t_stack.detail_page.movie_data if current_index == 1 else None
+        t_stack.page_history.append((current_index, state))
         
-        # Track if this grid view was triggered by a text search
-        self.is_text_search = initial_params is not None and "query" in initial_params
-        
-        self.grid_page.load_grid(title, fetch_func, initial_params)
-        self.stack.setCurrentIndex(4)
+        t_stack.is_text_search = initial_params is not None and "query" in initial_params
+        t_stack.grid_page.load_grid(title, fetch_func, initial_params)
+        t_stack.setCurrentIndex(2)
 
     def setup_top_nav(self):
         from PySide6.QtWidgets import (
@@ -402,61 +441,77 @@ class MainWindow(QMainWindow):
         return super().eventFilter(obj, event)
 
     def perform_search(self):
+        t_stack = self.main_stack.currentWidget()
+        if not isinstance(t_stack, TabStack):
+            self.switch_page(0, self.home_btn)
+            t_stack = self.tab_stacks[0]
+            
         # Hitting Enter in the search bar acts exactly like clicking "Discover"
-        if self.stack.currentIndex() == 4:
-            self.grid_page.filter_bar._apply()
+        if t_stack.currentIndex() == 2 and t_stack.grid_page:
+            t_stack.grid_page.filter_bar._apply()
+        elif t_stack.tab_index == 0:
+            self.home_page.filter_bar._apply()
         else:
+            # Not on home page and not on a search grid, let's switch to home and search
+            self.switch_page(0, self.home_btn)
+            # Re-set search text if needed, though QLineEdit keeps it
             self.home_page.filter_bar._apply()
 
     def go_back_to_previous_page(self):
-        if not self.page_history:
-            self.home_btn.setChecked(True)
-            self.stack.setCurrentIndex(0)
+        t_stack = self.main_stack.currentWidget()
+        if not isinstance(t_stack, TabStack) or not t_stack.page_history:
             return
 
-        prev_index, state = self.page_history.pop()
-
-        self.home_btn.setChecked(False)
-        self.col_btn.setChecked(False)
-        self.wish_btn.setChecked(False)
-        self.analytics_btn.setChecked(False)
-        self.downloads_btn.setChecked(False)
+        prev_index, state = t_stack.page_history.pop()
 
         if prev_index == 0:
-            self.home_btn.setChecked(True)
-            import ui.components as components
-            self.home_page.filter_bar.set_params(components.GLOBAL_FILTER_STATE)
-        elif prev_index == 1:
-            self.col_btn.setChecked(True)
-            self.collection_page.load_lists()
-        elif prev_index == 2:
-            self.wish_btn.setChecked(True)
-            self.wishlist_page.load_lists()
-        elif prev_index == 3 and state:
-            self.detail_page.load_movie(state)
+            if t_stack.tab_index == 1:
+                self.collection_page.load_lists()
+            elif t_stack.tab_index == 2:
+                self.wishlist_page.load_lists()
+            elif t_stack.tab_index == 5:
+                self.analytics_page.load_data()
+            elif t_stack.tab_index == 0:
+                import ui.components as components
+                self.home_page.filter_bar.set_params(components.GLOBAL_FILTER_STATE)
+        elif prev_index == 1 and state and t_stack.detail_page:
+            t_stack.detail_page.load_movie(state)
 
-        self.stack.setCurrentIndex(prev_index)
+        t_stack.setCurrentIndex(prev_index)
 
-    def _on_page_changed(self, index):
-        if hasattr(self, "search_wrapper"):
-            if index == 0:
-                self.search_wrapper.setVisible(True)
-            elif index == 4:
-                # Only show search bar if GridPage is in 'Discover' mode and it was a text search
-                is_text = getattr(self, "is_text_search", False)
-                self.search_wrapper.setVisible(is_text and self.grid_page.filter_bar.isVisible())
-            else:
-                self.search_wrapper.setVisible(False)
+    def _on_tab_changed(self, index):
+        t_stack = self.main_stack.widget(index)
+        if isinstance(t_stack, TabStack):
+            self._update_search_visibility(t_stack)
                 
-        if index == 1 and getattr(self, "collection_dirty", False):
-            self.collection_page.load_lists()
-            self.collection_dirty = False
-        elif index == 2 and getattr(self, "wishlist_dirty", False):
-            self.wishlist_page.load_lists()
-            self.wishlist_dirty = False
-        elif index == 5 and getattr(self, "analytics_dirty", False):
-            self.analytics_page.load_data()
-            self.analytics_dirty = False
+            if t_stack.currentIndex() == 0:
+                if index == 1 and getattr(self, "collection_dirty", False):
+                    self.collection_page.load_lists()
+                    self.collection_dirty = False
+                elif index == 2 and getattr(self, "wishlist_dirty", False):
+                    self.wishlist_page.load_lists()
+                    self.wishlist_dirty = False
+                elif index == 5 and getattr(self, "analytics_dirty", False):
+                    self.analytics_page.load_data()
+                    self.analytics_dirty = False
+        else:
+            if hasattr(self, "search_wrapper"):
+                self.search_wrapper.setVisible(False)
+
+    def _on_inner_page_changed(self, inner_index):
+        t_stack = self.sender()
+        if t_stack == self.main_stack.currentWidget():
+            self._update_search_visibility(t_stack)
+            
+    def _update_search_visibility(self, t_stack):
+        if not hasattr(self, "search_wrapper"): return
+        inner_index = t_stack.currentIndex()
+        if inner_index == 0 and t_stack.tab_index == 0:
+            self.search_wrapper.setVisible(True)
+        elif inner_index == 2 and getattr(t_stack, "is_text_search", False):
+            self.search_wrapper.setVisible(t_stack.grid_page.filter_bar.isVisible())
+        else:
+            self.search_wrapper.setVisible(False)
 
     # ------------------------------------------------------------------
     # change_status — non-blocking; uses cached details when available
@@ -471,17 +526,16 @@ class MainWindow(QMainWindow):
 
         # Optimistic UI update so buttons feel instant
         movie_data["status"] = new_status
-        if self.stack.currentIndex() == 3:
-            self.detail_page.update_buttons()
+        for detail_page in getattr(self, 'all_detail_pages', []):
+            if detail_page.movie_data and detail_page.movie_data.get("id") == movie_data["id"]:
+                detail_page.update_buttons()
 
-        # If we already have the details from the open detail page, use them directly
-        cached_details = (
-            self.detail_page._last_details
-            if self.stack.currentIndex() == 3
-            and self.detail_page._last_details is not None
-            and self.detail_page._last_details.get("id") == movie_data["id"]
-            else None
-        )
+        # If we already have the details from any open detail page, use them directly
+        cached_details = None
+        for detail_page in getattr(self, 'all_detail_pages', []):
+            if detail_page._last_details and detail_page._last_details.get("id") == movie_data["id"]:
+                cached_details = detail_page._last_details
+                break
 
         if cached_details:
             # Synchronous DB write (very fast, local SQLite)
@@ -515,23 +569,25 @@ class MainWindow(QMainWindow):
         self.wishlist_dirty = True
         self.analytics_dirty = True
         
-        current_idx = self.stack.currentIndex()
-        if current_idx == 1:
-            self.collection_page.load_lists()
-            self.collection_dirty = False
-        elif current_idx == 2:
-            self.wishlist_page.load_lists()
-            self.wishlist_dirty = False
-        elif current_idx == 5:
-            self.analytics_page.load_data()
-            self.analytics_dirty = False
-            
-        if self.stack.currentIndex() == 3:
-            self.detail_page.update_buttons()
-            
-        # Refresh grid page movie cards if any are displaying this movie
-        if hasattr(self, "grid_page"):
-            self.grid_page.refresh_status()
+        t_stack = self.main_stack.currentWidget()
+        if isinstance(t_stack, TabStack) and t_stack.currentIndex() == 0:
+            current_idx = t_stack.tab_index
+            if current_idx == 1:
+                self.collection_page.load_lists()
+                self.collection_dirty = False
+            elif current_idx == 2:
+                self.wishlist_page.load_lists()
+                self.wishlist_dirty = False
+            elif current_idx == 5:
+                self.analytics_page.load_data()
+                self.analytics_dirty = False
+                
+        for detail_page in getattr(self, 'all_detail_pages', []):
+            if detail_page.movie_data and detail_page.movie_data.get("id") == movie_data["id"]:
+                detail_page.update_buttons()
+                
+        for grid_page in getattr(self, 'all_grid_pages', []):
+            grid_page.refresh_status()
             
         # Keep the hero banner buttons in sync no matter where the change came from
         if hasattr(self, "home_page"):
