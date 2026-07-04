@@ -426,6 +426,10 @@ class ResizableScrollArea(QScrollArea):
 class FilterComboBox(QComboBox):
     def __init__(self, parent=None):
         super().__init__(parent)
+        from PySide6.QtCore import Qt
+        self.view().setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.view().setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.view().setTextElideMode(Qt.ElideRight)
         self.currentTextChanged.connect(self._on_text_changed)
 
     def _on_text_changed(self, text):
@@ -507,7 +511,9 @@ class SearchableComboBox(FilterComboBox):
                 color: #07111E;
             }
         """)
-        self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.list_widget.setTextElideMode(Qt.ElideRight)
         self.list_widget.setFixedHeight(250)
         
         container = QWidget()
@@ -548,7 +554,10 @@ class SearchableComboBox(FilterComboBox):
         
     def addItem(self, text, data=None):
         super().addItem(text, data)
-        self.list_widget.addItem(text)
+        from PySide6.QtWidgets import QListWidgetItem
+        item = QListWidgetItem(text)
+        item.setToolTip(text)
+        self.list_widget.addItem(item)
         
     def _filter_items(self, text):
         text = text.lower()
@@ -577,6 +586,7 @@ class MultiSelectComboBox(FilterComboBox):
         
     def addItem(self, text, data=None):
         item = QStandardItem(text)
+        item.setToolTip(text)
         item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
         item.setData(Qt.Unchecked, Qt.CheckStateRole)
         item.setData(data, Qt.UserRole)
@@ -817,10 +827,10 @@ class DiscoverFilterBar(QWidget):
         # RATING
         self.rating_combo = FilterComboBox()
         self.rating_combo.setStyleSheet(combo_style)
-        self.rating_combo.addItem("Any Rating",   None)
-        self.rating_combo.addItem("8+  ★ Stars",  8.0)
-        self.rating_combo.addItem("7+  ★ Stars",  7.0)
-        self.rating_combo.addItem("6+  ★ Stars",  6.0)
+        self.rating_combo.setMaxVisibleItems(8)
+        self.rating_combo.addItem("Any Rating", None)
+        for i in range(9, 0, -1):
+            self.rating_combo.addItem(f"{i}+  ★ Stars", float(i))
 
         # DISCOVER BUTTON — gradient, no border, strong presence
         self.discover_btn = QPushButton("Discover")
