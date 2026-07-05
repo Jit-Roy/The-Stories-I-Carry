@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="85 55 340 340" width="24" height="24">
+  <defs>
+    <mask id="cutout">
+      <rect x="0" y="0" width="480" height="420" fill="white" />
+      <rect x="150" y="248" width="230" height="115" fill="black"/>
+      <g fill="black">
+        <polygon points="152,240 172,205 197,205 177,240"/>
+        <polygon points="217,240 237,205 262,205 242,240"/>
+        <polygon points="282,240 302,205 327,205 307,240"/>
+        <polygon points="347,240 367,205 392,205 372,240"/>
+      </g>
+      <g transform="rotate(-25 130 205)" fill="black">
+        <polygon points="150,217 168,182 193,182 175,217"/>
+        <polygon points="215,217 233,182 258,182 240,217"/>
+        <polygon points="280,217 298,182 323,182 305,217"/>
+        <polygon points="345,217 358,182 383,182 370,217"/>
+      </g>
+    </mask>
+  </defs>
+
+  <g mask="url(#cutout)" fill="#1AE0A1">
+    <!-- Body -->
+    <rect x="130" y="205" width="270" height="180" rx="8" />
+    <!-- Top clapper bar -->
+    <path d="M 130 205 L 130 240 L 400 240 L 400 205 Z" />
+    <!-- Hinge -->
+    <circle cx="130" cy="205" r="14" />
+    <!-- Open top stick -->
+    <g transform="rotate(-25 130 205)">
+      <rect x="120" y="182" width="270" height="35" rx="10" />
+    </g>
+  </g>
+</svg>

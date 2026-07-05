@@ -98,7 +98,7 @@ class ClickableBarItem(HoverAnimatedWidget):
         layout.addWidget(bar_container)
         layout.addWidget(val_lbl)
 
-class VerticalBarItem(HoverAnimatedWidget):
+class VerticalBarItem(QWidget):
     def __init__(self, category, name, value, max_value, gradient_start, gradient_end):
         super().__init__()
         self.category = category
@@ -382,7 +382,6 @@ class AnalyticsPage(QWidget):
             for i in range(11):
                 count = ratings[i]
                 bar = VerticalBarItem("Rating Distribution", str(i), count, max_rtg, "#F2C94C", "#F2994A")
-                bar.clicked.connect(self.on_chart_clicked)
                 h_layout.addWidget(bar)
             layout.addLayout(h_layout)
         else:

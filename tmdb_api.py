@@ -161,6 +161,40 @@ def get_popular_tv(page=1):
     data = _make_request("/tv/popular", {"language": "en-US", "page": page})
     return inject_db_status([_format_tv(m) for m in data.get("results", [])])
 
+def search_multi(query, page=1):
+    data = _make_request("/search/multi", {"query": query, "language": "en-US", "page": page, "include_adult": False})
+    results = []
+    for m in data.get("results", []):
+        if m.get("media_type") == "movie":
+            results.append(_format_movie(m))
+        elif m.get("media_type") == "tv":
+            results.append(_format_tv(m))
+        elif m.get("media_type") == "person":
+            profile = m.get("profile_path")
+            results.append({
+                "id": m.get("id"),
+                "name": m.get("name"),
+                "profile_path": f"{IMAGE_BASE_URL}{profile}" if profile else None,
+                "media_type": "person"
+            })
+    return inject_db_status(results)
+
+def get_trending_people(page=1):
+    data = _make_request("/trending/person/week", {"page": page})
+    results = []
+    for p in data.get("results", []):
+        profile = p.get("profile_path")
+        results.append({
+            "id": p.get("id"),
+            "name": p.get("name"),
+            "profile_path": f"{IMAGE_BASE_URL}{profile}" if profile else None,
+            "media_type": "person"
+        })
+    return results
+
+
+
+
 def get_movie_details(movie_id):
     """Fetch full movie details. Results are cached for the session lifetime."""
     if movie_id in _details_cache:
@@ -364,9 +398,6 @@ def get_countries():
     return []
 
 
-def get_movies_by_genre(genre_id, page=1):
-    data = _make_request("/discover/movie", {"with_genres": genre_id, "language": "en-US", "page": page})
-    return inject_db_status([_format_movie(m) for m in data.get("results", [])])
 
 
 def get_collection_poster(series_name, media_type="movie"):

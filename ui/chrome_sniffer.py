@@ -248,11 +248,15 @@ class ChromeSnifferThread(QThread):
 
 
 class ChromeSnifferDialog(QDialog):
-    def __init__(self, movie_id, parent=None):
+    def __init__(self, movie_id, parent=None, media_type="movie"):
         super().__init__(parent)
         self.movie_id = movie_id
+        self.media_type = media_type
         self.selected_m3u8 = None
-        self.embed_url = f"https://vidsrc.sbs/embed/movie/{self.movie_id}"
+        if self.media_type == "tv":
+            self.embed_url = f"https://vidsrc.sbs/embed/tv/{self.movie_id}/1/1"
+        else:
+            self.embed_url = f"https://vidsrc.sbs/embed/movie/{self.movie_id}"
         self.stream_headers = {}
         
         self.setWindowTitle("Chrome Stream Sniffer")

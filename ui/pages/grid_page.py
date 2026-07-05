@@ -62,14 +62,15 @@ class GridPage(QWidget):
     def clear_grid(self):
         self.flow_layout.clear()
                 
-    def load_grid(self, title, fetch_func, initial_params=None):
+    def load_grid(self, title, fetch_func, initial_params=None, card_renderer=None, show_filter_bar=True):
         self.title_label.setText(title)
         self.clear_grid()
         self.current_page = 1
         self.fetch_func = fetch_func
+        self.card_renderer = card_renderer
         self.load_more_btn.show()
         
-        if initial_params is not None:
+        if initial_params is not None and show_filter_bar:
             import tmdb_api
             self.filter_bar.populate_genres(tmdb_api.get_genres())
             self.filter_bar.populate_languages(tmdb_api.get_languages())
@@ -105,7 +106,10 @@ class GridPage(QWidget):
             return
             
         for movie in movies:
-            self.flow_layout.add_widget(MovieCard(movie, self.change_status, self.on_click))
+            if getattr(self, 'card_renderer', None):
+                self.flow_layout.add_widget(self.card_renderer(movie))
+            else:
+                self.flow_layout.add_widget(MovieCard(movie, self.change_status, self.on_click))
             
         self.current_page += 1
         self.flow_layout.reflow(self.scroll.viewport().width())

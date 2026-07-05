@@ -3,7 +3,9 @@ from PySide6.QtCore import Qt, QRunnable, QThreadPool, Signal, QObject
 import database
 import tmdb_api
 
-from ui.pages.home_page import HomePage
+from ui.pages.discover_page import DiscoverPage
+from ui.pages.movies_page import MoviesPage
+from ui.pages.tv_page import TvPage
 from ui.pages.collection_page import CollectionPage
 from ui.pages.wishlist_page import WishlistPage
 from ui.pages.detail_page import MovieDetailPage
@@ -107,10 +109,11 @@ class MainWindow(QMainWindow):
         self.main_stack = QStackedWidget()
         self._current_main_index = 0
         self.main_stack.currentChanged.connect(self._on_tab_changed)
+        self.tab_search_texts = {}
 
-        self.home_page = HomePage(self.change_status, self.show_movie_detail, self.show_grid_view)
-        self.tv_home_page = HomePage(self.change_status, self.show_movie_detail, self.show_grid_view)
-        self.tv_home_page.set_media_type("tv")
+        self.discover_page = DiscoverPage(self.change_status, self.show_movie_detail, self.show_person_detail, self.show_grid_view)
+        self.movies_page = MoviesPage(self.change_status, self.show_movie_detail, self.show_grid_view)
+        self.tv_page = TvPage(self.change_status, self.show_movie_detail, self.show_grid_view)
         
         self.collection_page = CollectionPage(self.change_status, self.show_movie_detail)
         self.wishlist_page = WishlistPage(self.change_status, self.show_movie_detail)
@@ -124,17 +127,15 @@ class MainWindow(QMainWindow):
 
         # Create a TabStack for each main tab
         self.tab_stacks = {}
-        for idx, main_widget in enumerate([self.home_page, self.collection_page, self.wishlist_page, self.tv_home_page, None, self.analytics_page, self.downloads_page, self.settings_page]):
-            if main_widget is None:
-                self.main_stack.addWidget(QWidget()) # padding
-                continue
+        # Indices: 0: Discover, 1: Movies, 2: TV, 3: Collection, 4: Wishlist, 5: Analytics, 6: Downloads, 7: Settings
+        for idx, main_widget in enumerate([self.discover_page, self.movies_page, self.tv_page, self.collection_page, self.wishlist_page, self.analytics_page, self.downloads_page, self.settings_page]):
             
             t_stack = TabStack(idx)
             t_stack.addWidget(main_widget) # Inner Index 0
             t_stack.main_page = main_widget
             
             # Add dedicated Detail and Grid pages if applicable
-            if idx in (0, 1, 2, 3, 5):
+            if idx in (0, 1, 2, 3, 4, 5):
                 detail = MovieDetailPage(self.go_back_to_previous_page, self.change_status, self.show_movie_detail, self.show_person_detail, self.show_grid_view)
                 grid = GridPage(self.go_back_to_previous_page, self.change_status, self.show_movie_detail)
                 person = PersonPage(self.go_back_to_previous_page, self.change_status, self.show_movie_detail, self.show_grid_view)
@@ -224,34 +225,34 @@ class MainWindow(QMainWindow):
             }
         """
 
-        self.home_btn = QPushButton("  Home")
-        self.home_btn.setStyleSheet(nav_style)
-        self.home_btn.setCheckable(True)
-        self.home_btn.clicked.connect(self.toggle_home_subnodes)
-        layout.addWidget(self.home_btn)
+        self.discover_btn = QPushButton("  Discover")
+        self.discover_btn.setStyleSheet(nav_style)
+        self.discover_btn.setCheckable(True)
+        self.discover_btn.clicked.connect(lambda: self.switch_page(0, self.discover_btn))
+        layout.addWidget(self.discover_btn)
 
-        self.movies_btn = QPushButton("Movies")
-        self.movies_btn.setStyleSheet(sub_nav_style)
+        self.movies_btn = QPushButton("  Movies")
+        self.movies_btn.setStyleSheet(nav_style)
         self.movies_btn.setCheckable(True)
-        self.movies_btn.clicked.connect(lambda: self.switch_home_mode("movie"))
+        self.movies_btn.clicked.connect(lambda: self.switch_page(1, self.movies_btn))
         layout.addWidget(self.movies_btn)
 
-        self.tv_btn = QPushButton("TV Series")
-        self.tv_btn.setStyleSheet(sub_nav_style)
+        self.tv_btn = QPushButton("  TV Series")
+        self.tv_btn.setStyleSheet(nav_style)
         self.tv_btn.setCheckable(True)
-        self.tv_btn.clicked.connect(lambda: self.switch_home_mode("tv"))
+        self.tv_btn.clicked.connect(lambda: self.switch_page(2, self.tv_btn))
         layout.addWidget(self.tv_btn)
 
         self.col_btn = QPushButton("  Collection")
         self.col_btn.setStyleSheet(nav_style)
         self.col_btn.setCheckable(True)
-        self.col_btn.clicked.connect(lambda: self.switch_page(1, self.col_btn))
+        self.col_btn.clicked.connect(lambda: self.switch_page(3, self.col_btn))
         layout.addWidget(self.col_btn)
 
         self.wish_btn = QPushButton("  Wishlist")
         self.wish_btn.setStyleSheet(nav_style)
         self.wish_btn.setCheckable(True)
-        self.wish_btn.clicked.connect(lambda: self.switch_page(2, self.wish_btn))
+        self.wish_btn.clicked.connect(lambda: self.switch_page(4, self.wish_btn))
         layout.addWidget(self.wish_btn)
 
         self.analytics_btn = QPushButton("  Analytics")
@@ -266,7 +267,9 @@ class MainWindow(QMainWindow):
         self.downloads_btn.clicked.connect(lambda: self.switch_page(6, self.downloads_btn))
         layout.addWidget(self.downloads_btn)
 
-        self.home_btn.toggled.connect(self.update_nav_icons)
+        self.discover_btn.toggled.connect(self.update_nav_icons)
+        self.movies_btn.toggled.connect(self.update_nav_icons)
+        self.tv_btn.toggled.connect(self.update_nav_icons)
         self.col_btn.toggled.connect(self.update_nav_icons)
         self.wish_btn.toggled.connect(self.update_nav_icons)
         self.analytics_btn.toggled.connect(self.update_nav_icons)
@@ -281,15 +284,16 @@ class MainWindow(QMainWindow):
         self.settings_btn.toggled.connect(self.update_nav_icons)
         layout.addWidget(self.settings_btn)
 
-        self.movies_btn.setChecked(True)
-        self.home_btn.setChecked(True)
+        self.discover_btn.setChecked(True)
         self.update_nav_icons()
         
         self.layout.addWidget(self.left_sidebar)
 
     def update_nav_icons(self):
         from PySide6.QtGui import QIcon
-        self.home_btn.setIcon(QIcon("assets/icons/home_active.svg" if self.home_btn.isChecked() else "assets/icons/home.svg"))
+        self.discover_btn.setIcon(QIcon("assets/icons/discover_active.svg" if self.discover_btn.isChecked() else "assets/icons/discover.svg"))
+        self.movies_btn.setIcon(QIcon("assets/icons/movies_active.svg" if self.movies_btn.isChecked() else "assets/icons/movies.svg"))
+        self.tv_btn.setIcon(QIcon("assets/icons/tv_active.svg" if self.tv_btn.isChecked() else "assets/icons/tv.svg"))
         self.col_btn.setIcon(QIcon("assets/icons/collection_active.svg" if self.col_btn.isChecked() else "assets/icons/collection.svg"))
         self.wish_btn.setIcon(QIcon("assets/icons/wishlist_active.svg" if self.wish_btn.isChecked() else "assets/icons/wishlist.svg"))
         self.analytics_btn.setIcon(QIcon("assets/icons/analytics_active.svg" if self.analytics_btn.isChecked() else "assets/icons/analytics.svg"))
@@ -297,33 +301,15 @@ class MainWindow(QMainWindow):
         self.settings_btn.setIcon(QIcon("assets/icons/settings_active.svg" if self.settings_btn.isChecked() else "assets/icons/settings.svg"))
 
 
-    def toggle_home_subnodes(self):
-        self.movies_btn.setVisible(True)
-        self.tv_btn.setVisible(True)
-        self.switch_home_mode(self.current_media_type)
-            
-    def switch_home_mode(self, media_type):
-        self.current_media_type = media_type
-        self.movies_btn.setChecked(media_type == "movie")
-        self.tv_btn.setChecked(media_type == "tv")
-        
-        # Uncheck other top-level tabs
-        self.col_btn.setChecked(False)
-        self.wish_btn.setChecked(False)
-        self.analytics_btn.setChecked(False)
-        self.downloads_btn.setChecked(False)
-        self.settings_btn.setChecked(False)
-        
-        # Switch to the appropriate main stack index
-        target_index = 0 if media_type == "movie" else 3
-        self.main_stack.setCurrentIndex(target_index)
-        self.home_btn.setChecked(True)
-        
-        self.update_nav_icons()
-        
     def switch_page(self, index, active_btn):
+        old_index = self.main_stack.currentIndex()
+        if hasattr(self, "search_bar"):
+            if not hasattr(self, "tab_search_texts"):
+                self.tab_search_texts = {}
+            self.tab_search_texts[old_index] = self.search_bar.text()
+
         self.main_stack.setCurrentIndex(index)
-        self.home_btn.setChecked(False)
+        self.discover_btn.setChecked(False)
         self.movies_btn.setChecked(False)
         self.tv_btn.setChecked(False)
         self.col_btn.setChecked(False)
@@ -333,22 +319,38 @@ class MainWindow(QMainWindow):
         self.settings_btn.setChecked(False)
         active_btn.setChecked(True)
         
+        if hasattr(self, "search_bar"):
+            if index == 0:
+                self.search_bar.setPlaceholderText("Search for a movie, TV show, or actor...")
+            elif index == 1:
+                self.search_bar.setPlaceholderText("Search for a movie title...")
+            elif index == 2:
+                self.search_bar.setPlaceholderText("Search for a TV series title...")
+            
+            if hasattr(self, "tab_search_texts"):
+                self.search_bar.setText(self.tab_search_texts.get(index, ""))
+        
         # If we switch to a tab and it happens to be at its root page (0), we can refresh lists
         t_stack = self.tab_stacks.get(index)
         if t_stack and t_stack.currentIndex() == 0:
-            if index == 1:
+            if index == 3:
                 self.collection_page.load_lists()
-            elif index == 2:
+            elif index == 4:
                 self.wishlist_page.load_lists()
             elif index == 5:
                 self.analytics_page.load_data()
-            elif index == 0:
+            elif index == 1:
                 import ui.components as components
-                self.home_page.filter_bar.set_params(components.GLOBAL_FILTER_STATE)
+                self.movies_page.filter_bar.set_params(components.GLOBAL_FILTER_STATE)
+            elif index == 2:
+                import ui.components as components
+                self.tv_page.filter_bar.set_params(components.GLOBAL_FILTER_STATE)
 
     def _on_api_key_changed(self):
         """Called when the user saves a new TMDB API Key from the settings page."""
-        self.home_page.load_home_content()
+        self.discover_page.load_discover_content()
+        self.movies_page.load_home_content()
+        self.tv_page.load_home_content()
         self.analytics_dirty = True
 
     def show_person_detail(self, person_id):
@@ -389,26 +391,18 @@ class MainWindow(QMainWindow):
             else:
                 return # Not found
         elif category == "Cinematic World Map":
-            params["with_original_language"] = value
+            params["with_original_language"] = value.lower()
         elif category == "Top Countries":
             params["with_origin_country"] = value
         elif category == "Rating Distribution":
             params["vote_average.gte"] = value
             params["vote_average.lte"] = str(float(value) + 0.99)
-        elif category == "Favorite Actors":
+        elif category in ["Top Actors", "Top Directors", "Favorite Actors"]:
             data = tmdb_api._make_request("/search/person", {"query": value, "page": 1})
             results = data.get("results", [])
             if results:
-                params["with_cast"] = results[0]["id"]
-            else:
-                return
-        elif category == "Top Directors":
-            data = tmdb_api._make_request("/search/person", {"query": value, "page": 1})
-            results = data.get("results", [])
-            if results:
-                params["with_crew"] = results[0]["id"]
-            else:
-                return
+                self.show_person_detail(results[0]["id"])
+            return
         elif category == "Top Genres":
             all_genres = tmdb_api.get_genres()
             genre_id = next((g["id"] for g in all_genres if g["name"].lower() == value.lower()), None)
@@ -416,15 +410,19 @@ class MainWindow(QMainWindow):
                 params["with_genres"] = genre_id
             else:
                 return
+        elif category == "Time Traveler (Decades)":
+            year = value.replace("s", "")
+            params["primary_release_date.gte"] = f"{year}-01-01"
+            params["primary_release_date.lte"] = f"{int(year)+9}-12-31"
             
         fetch_func = lambda page=1: tmdb_api.advanced_discover(params, page=page)
         self.show_grid_view(title, fetch_func, initial_params=params)
 
-    def show_grid_view(self, title, fetch_func, initial_params=None):
+    def show_grid_view(self, title, fetch_func, initial_params=None, card_renderer=None, show_filter_bar=True):
         t_stack = self.main_stack.currentWidget()
         if not isinstance(t_stack, TabStack) or not t_stack.grid_page:
             # If triggered from somewhere without a grid (like downloads), force switch to Home
-            self.switch_page(0, self.home_btn)
+            self.switch_page(0, getattr(self, "home_btn", self.discover_btn))
             t_stack = self.tab_stacks[0]
             
         current_index = t_stack.currentIndex()
@@ -432,7 +430,7 @@ class MainWindow(QMainWindow):
         t_stack.page_history.append((current_index, state))
         
         t_stack.is_text_search = initial_params is not None and "query" in initial_params
-        t_stack.grid_page.load_grid(title, fetch_func, initial_params)
+        t_stack.grid_page.load_grid(title, fetch_func, initial_params, card_renderer, show_filter_bar)
         t_stack.setCurrentIndex(2)
 
     def setup_top_nav(self):
@@ -479,7 +477,7 @@ class MainWindow(QMainWindow):
 
         # ── Input ──────────────────────────────────────────────────────────────
         self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("Search movies, actors, keywords…")
+        self.search_bar.setPlaceholderText("Search for a movie, TV show, or actor...")
         self.search_bar.setStyleSheet("""
             QLineEdit {
                 background: transparent;
@@ -543,22 +541,43 @@ class MainWindow(QMainWindow):
 
     def perform_search(self):
         t_stack = self.main_stack.currentWidget()
-        if not isinstance(t_stack, TabStack):
-            self.switch_page(0, self.home_btn)
+        if getattr(self, "settings_page", None) and t_stack == self.tab_stacks[7]:
+            self.switch_page(0, self.discover_btn)
             t_stack = self.tab_stacks[0]
             
+        def _do_discover_search():
+            query = self.search_bar.text().strip()
+            if query:
+                import tmdb_api
+                from ui.pages.discover_page import PersonCard
+                from ui.movie_card import MovieCard
+                
+                def renderer(item):
+                    if item.get("media_type") == "person":
+                        return PersonCard(item, lambda p: self.show_person_detail(p["id"]), card_width=160, card_height=280, img_width=160, img_height=240)
+                    return MovieCard(item, self.change_status, self.show_movie_detail)
+                    
+                self.show_grid_view(f"Search Results for '{query}'", lambda page: tmdb_api.search_multi(query, page), {"query": query}, renderer, show_filter_bar=False)
+
         # Hitting Enter in the search bar acts exactly like clicking "Discover"
-        if t_stack.currentIndex() == 2 and t_stack.grid_page:
-            t_stack.grid_page.filter_bar._apply()
+        if t_stack.currentIndex() == 2 and getattr(t_stack, "is_text_search", False):
+            if hasattr(t_stack.grid_page, "filter_bar") and t_stack.grid_page.filter_bar.isVisible():
+                t_stack.grid_page.filter_bar._apply()
+            elif t_stack.tab_index == 0:
+                _do_discover_search()
         elif t_stack.tab_index == 0:
-            self.home_page.filter_bar._apply()
-        elif t_stack.tab_index == 3:
-            self.tv_home_page.filter_bar._apply()
+            _do_discover_search()
+        elif t_stack.tab_index == 1:
+            self.movies_page.filter_bar._apply()
+        elif t_stack.tab_index == 2:
+            self.tv_page.filter_bar._apply()
         else:
-            # Not on home page and not on a search grid, let's switch to home and search
-            self.switch_page(0, self.home_btn)
-            # Re-set search text if needed, though QLineEdit keeps it
-            self.home_page.filter_bar._apply()
+            # Not on home page and not on a search grid, let's switch to discover and search
+            query = self.search_bar.text().strip()
+            self.switch_page(0, self.discover_btn)
+            if query:
+                import tmdb_api
+                self.show_grid_view(f"Search Results for '{query}'", lambda page: tmdb_api.search_multi(query, page), {"query": query})
 
     def go_back_to_previous_page(self):
         t_stack = self.main_stack.currentWidget()
@@ -568,18 +587,18 @@ class MainWindow(QMainWindow):
         prev_index, state = t_stack.page_history.pop()
 
         if prev_index == 0:
-            if t_stack.tab_index == 1:
+            if t_stack.tab_index == 3:
                 self.collection_page.load_lists()
-            elif t_stack.tab_index == 2:
+            elif t_stack.tab_index == 4:
                 self.wishlist_page.load_lists()
             elif t_stack.tab_index == 5:
                 self.analytics_page.load_data()
-            elif t_stack.tab_index == 0:
+            elif t_stack.tab_index == 1:
                 import ui.components as components
-                self.home_page.filter_bar.set_params(components.GLOBAL_FILTER_STATE)
-            elif t_stack.tab_index == 3:
+                self.movies_page.filter_bar.set_params(components.GLOBAL_FILTER_STATE)
+            elif t_stack.tab_index == 2:
                 import ui.components as components
-                self.tv_home_page.filter_bar.set_params(components.GLOBAL_FILTER_STATE)
+                self.tv_page.filter_bar.set_params(components.GLOBAL_FILTER_STATE)
         elif prev_index == 1 and state and t_stack.detail_page:
             t_stack.detail_page.load_movie(state)
         elif prev_index == 3 and state and t_stack.person_page:
@@ -629,10 +648,13 @@ class MainWindow(QMainWindow):
     def _update_search_visibility(self, t_stack):
         if not hasattr(self, "search_wrapper"): return
         inner_index = t_stack.currentIndex()
-        if inner_index == 0 and t_stack.tab_index in (0, 3):
+        if inner_index == 0 and t_stack.tab_index in (0, 1, 2):
             self.search_wrapper.setVisible(True)
         elif inner_index == 2 and getattr(t_stack, "is_text_search", False):
-            self.search_wrapper.setVisible(t_stack.grid_page.filter_bar.isVisible())
+            if hasattr(t_stack.grid_page, "filter_bar"):
+                self.search_wrapper.setVisible(t_stack.grid_page.filter_bar.isVisible())
+            else:
+                self.search_wrapper.setVisible(True)
         else:
             self.search_wrapper.setVisible(False)
 

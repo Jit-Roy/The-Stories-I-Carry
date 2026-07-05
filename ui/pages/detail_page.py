@@ -431,9 +431,20 @@ class MovieDetailPage(QWidget):
         if not self.movie_data:
             return
         tmdb_id = self.movie_data.get("id")
+        
+        m_type = self.movie_data.get("media_type")
+        if not m_type:
+            if "name" in self.movie_data and "title" not in self.movie_data:
+                m_type = "tv"
+            else:
+                m_type = "movie"
+                
         if tmdb_id:
             import webbrowser
-            url = f"https://vidsrc.sbs/embed/movie/{tmdb_id}"
+            if m_type == "tv":
+                url = f"https://vidsrc.sbs/embed/tv/{tmdb_id}/1/1"
+            else:
+                url = f"https://vidsrc.sbs/embed/movie/{tmdb_id}"
             print(f"[Player] Opening system browser: {url}")
             webbrowser.open(url)
 
@@ -463,12 +474,19 @@ class MovieDetailPage(QWidget):
         if not hasattr(self, "download_manager") or not self.download_manager:
             return
 
+        m_type = self.movie_data.get("media_type")
+        if not m_type:
+            if "name" in self.movie_data and "title" not in self.movie_data:
+                m_type = "tv"
+            else:
+                m_type = "movie"
+
         movie_id = str(self.movie_data.get('id', ''))
         if not movie_id:
             return
 
         # Native Chrome Sniffer approach
-        dialog = ChromeSnifferDialog(movie_id, self)
+        dialog = ChromeSnifferDialog(movie_id, self, m_type)
         if dialog.exec():
             selection = dialog.get_selection()
             if selection and selection.get('m3u8_url'):

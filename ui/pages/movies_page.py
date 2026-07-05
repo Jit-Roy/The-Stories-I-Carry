@@ -4,48 +4,33 @@ import tmdb_api
 from ui.movie_card import MovieCard
 from ui.components import HorizontalCarousel
 
-
-class GenreCard(QWidget):
-    def __init__(self, genre):
-        super().__init__()
-        from PySide6.QtWidgets import QLabel
-        self.setFixedSize(160, 80)
-        self.setStyleSheet("background-color: #1A1C23; border-radius: 12px;")
-        layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignCenter)
-        lbl = QLabel(genre["name"])
-        lbl.setStyleSheet("font-weight: bold; font-size: 14px; color: #E2E8F0;")
-        layout.addWidget(lbl)
-
-
 # ---------------------------------------------------------------------------
 # Worker: fetch one home-page section off the GUI thread
 # ---------------------------------------------------------------------------
-class _HomeSectionSignals(QObject):
-    finished = Signal(str, list, str)   # section_key, results, media_type
+class _MovieSectionSignals(QObject):
+    finished = Signal(str, list)   # section_key, results
 
 
-class _HomeSectionWorker(QRunnable):
-    def __init__(self, key: str, fetch_fn, media_type: str):
+class _MovieSectionWorker(QRunnable):
+    def __init__(self, key: str, fetch_fn):
         super().__init__()
         self.key = key
         self.fetch_fn = fetch_fn
-        self.media_type = media_type
-        self.signals = _HomeSectionSignals()
+        self.signals = _MovieSectionSignals()
 
     def run(self):
         try:
             results = self.fetch_fn()
         except Exception as e:
-            print(f"HomeSectionWorker ({self.key}) error: {e}")
+            print(f"MovieSectionWorker ({self.key}) error: {e}")
             results = []
-        self.signals.finished.emit(self.key, results, self.media_type)
+        self.signals.finished.emit(self.key, results)
 
 
 # ---------------------------------------------------------------------------
-# HomePage
+# MoviesPage
 # ---------------------------------------------------------------------------
-class HomePage(QWidget):
+class MoviesPage(QWidget):
     def __init__(self, change_status_callback, on_movie_click_callback, on_view_all_callback):
         super().__init__()
         self.change_status = change_status_callback
@@ -79,21 +64,16 @@ class HomePage(QWidget):
         self._section_slots: dict[str, QWidget | None] = {
             "hero": None,
             "trending": None,
+            "popular": None,
             "top_rated": None,
             "upcoming": None,
         }
 
         self.trending_toggle = None
         self.trending_carousel = None
-        self.media_type = "movie"
 
         self._sections_pending = 0
         self.load_home_content()
-
-    def set_media_type(self, media_type):
-        self.media_type = media_type
-        self.load_home_content()
-
 
     def clear_layout(self):
         while self.content_layout.count():
@@ -108,7 +88,7 @@ class HomePage(QWidget):
         fetch_params = params.copy()
         query = fetch_params.get("query")
         title = f"Search Results: '{query}'" if query else "Discover Results"
-        self.on_view_all(title, lambda page: tmdb_api.advanced_discover(fetch_params, page=page, media_type=self.media_type), fetch_params)
+        self.on_view_all(title, lambda page: tmdb_api.advanced_discover(fetch_params, page=page, media_type="movie"), fetch_params)
 
     # ------------------------------------------------------------------
     # Async loading — launch all workers concurrently
@@ -127,41 +107,26 @@ class HomePage(QWidget):
             self.content_layout.addWidget(placeholder)
         self.content_layout.addStretch()
 
-        if self.media_type == "movie":
-            sections = [
-                ("trending",  tmdb_api.get_trending),
-                ("popular",   tmdb_api.get_popular),
-                ("upcoming",  tmdb_api.get_upcoming),
-                ("top_rated", tmdb_api.get_top_rated),
-                ("genres",    tmdb_api.get_genres),
-                ("languages", tmdb_api.get_languages),
-                ("countries", tmdb_api.get_countries),
-            ]
-        else:
-            sections = [
-                ("trending",  tmdb_api.get_trending_tv),
-                ("popular",   tmdb_api.get_popular_tv),
-                ("upcoming",  tmdb_api.get_upcoming_tv),
-                ("top_rated", tmdb_api.get_top_rated_tv),
-                ("genres",    tmdb_api.get_genres),
-                ("languages", tmdb_api.get_languages),
-                ("countries", tmdb_api.get_countries),
-            ]
+        sections = [
+            ("trending",  tmdb_api.get_trending),
+            ("popular",   tmdb_api.get_popular),
+            ("upcoming",  tmdb_api.get_upcoming),
+            ("top_rated", tmdb_api.get_top_rated),
+            ("genres",    tmdb_api.get_genres),
+            ("languages", tmdb_api.get_languages),
+            ("countries", tmdb_api.get_countries),
+        ]
             
         self._sections_pending = len(sections)
 
         for key, fn in sections:
-            worker = _HomeSectionWorker(key, fn, self.media_type)
+            worker = _MovieSectionWorker(key, fn)
             worker.signals.finished.connect(self._on_section_loaded)
             from PySide6.QtCore import QThreadPool
             QThreadPool.globalInstance().start(worker)
 
-    def _on_section_loaded(self, key: str, data: list, media_type: str):
+    def _on_section_loaded(self, key: str, data: list):
         """Called on the main thread as each worker finishes."""
-        # Prevent race conditions from stale requests
-        if media_type != self.media_type:
-            return
-            
         self._sections_pending -= 1
 
         if key == "genres":
@@ -221,10 +186,7 @@ class HomePage(QWidget):
 
         def fetch_trending(page=1):
             window = "day" if self.trending_toggle.current == "Today" else "week"
-            if self.media_type == "movie":
-                return tmdb_api.get_trending(page=page, time_window=window)
-            else:
-                return tmdb_api.get_trending_tv(page=page, time_window=window)
+            return tmdb_api.get_trending(page=page, time_window=window)
 
         self.trending_carousel = HorizontalCarousel(
             "Trending",
@@ -244,7 +206,7 @@ class HomePage(QWidget):
         self._swap_placeholder("hero", container)
         
     def _build_popular(self, popular):
-        fetch_fn = tmdb_api.get_popular if self.media_type == "movie" else tmdb_api.get_popular_tv
+        fetch_fn = tmdb_api.get_popular
         self.popular_carousel = HorizontalCarousel(
             "Popular",
             popular,
@@ -254,7 +216,7 @@ class HomePage(QWidget):
         self._swap_placeholder("popular", self.popular_carousel)
 
     def _build_top_rated(self, top_rated):
-        fetch_fn = tmdb_api.get_top_rated if self.media_type == "movie" else tmdb_api.get_top_rated_tv
+        fetch_fn = tmdb_api.get_top_rated
         self.top_rated_carousel = HorizontalCarousel(
             "Top Rated",
             top_rated,
@@ -264,8 +226,8 @@ class HomePage(QWidget):
         self._swap_placeholder("top_rated", self.top_rated_carousel)
 
     def _build_upcoming(self, upcoming):
-        title = "Upcoming Releases" if self.media_type == "movie" else "On The Air"
-        fetch_fn = tmdb_api.get_upcoming if self.media_type == "movie" else tmdb_api.get_upcoming_tv
+        title = "Upcoming Releases"
+        fetch_fn = tmdb_api.get_upcoming
         self.upcoming_carousel = HorizontalCarousel(
             title,
             upcoming,
