@@ -3,6 +3,7 @@ import asyncio
 from PySide6.QtCore import QObject, Signal, QRunnable, QThreadPool
 import threading
 import yt_dlp
+import database
 
 class WorkerSignals(QObject):
     progress = Signal(int, dict)
@@ -169,10 +170,15 @@ class DownloadManager(QObject):
         self._initialized = True
         self.active_downloads = {} # tmdb_id -> { "movie_data": ..., "status": ... }
         self.abort_events = {}
-        self.download_path = os.path.join(os.getcwd(), "Downloads")
+        self.download_path = database.get_setting("download_dir", os.path.join(os.path.expanduser("~"), "Downloads"))
         self.history_file = os.path.join(os.getcwd(), "downloads_history.json")
         os.makedirs(self.download_path, exist_ok=True)
         self.load_history()
+
+    def set_download_path(self, path):
+        self.download_path = path
+        os.makedirs(self.download_path, exist_ok=True)
+        database.set_setting("download_dir", path)
 
     def load_history(self):
         import json

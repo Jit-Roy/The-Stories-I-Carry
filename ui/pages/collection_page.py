@@ -58,6 +58,10 @@ class CollectionPage(QWidget):
         self.load_lists()
         
     def load_lists(self, media_type=None):
+        if hasattr(self, "render_timer") and self.render_timer.isActive():
+            self.render_timer.stop()
+        self.pending_items = []
+
         if media_type:
             target = "Movies" if media_type == "movie" else "TV Series"
             self.type_toggle.blockSignals(True)

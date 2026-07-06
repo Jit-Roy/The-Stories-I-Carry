@@ -1,0 +1,22 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+<g transform="translate(51,-44)">
+<circle cx="205" cy="300" r="178" fill="#b0b0b0" stroke="#000000" stroke-width="17"/>
+<circle cx="70" cy="238" r="6" fill="#000000"/>
+<path d="M55,265 C48,285 46,308 50,330" fill="none" stroke="#000000" stroke-width="10" stroke-linecap="round"/>
+<circle cx="168" cy="222" r="46" fill="#000000"/>
+<circle cx="159.5" cy="230.5" r="42" fill="#ffffff"/>
+<circle cx="168" cy="222" r="46" fill="none" stroke="#000000" stroke-width="11"/>
+<circle cx="278" cy="215" r="48" fill="#000000"/>
+<circle cx="268.1" cy="224.9" r="42" fill="#ffffff"/>
+<circle cx="278" cy="215" r="48" fill="none" stroke="#000000" stroke-width="11"/>
+<circle cx="118" cy="330" r="49" fill="#000000"/>
+<circle cx="108.8" cy="339.2" r="44" fill="#ffffff"/>
+<circle cx="118" cy="330" r="49" fill="none" stroke="#000000" stroke-width="11"/>
+<circle cx="218" cy="398" r="47" fill="#000000"/>
+<circle cx="206.0" cy="410.0" r="38" fill="#ffffff"/>
+<circle cx="218" cy="398" r="47" fill="none" stroke="#000000" stroke-width="11"/>
+<circle cx="312" cy="322" r="47" fill="#000000"/>
+<circle cx="301.4" cy="332.6" r="40" fill="#ffffff"/>
+<circle cx="312" cy="322" r="47" fill="none" stroke="#000000" stroke-width="11"/>
+</g>
+</svg>

@@ -1,9 +1,12 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel, 
                                QLineEdit, QPushButton, QHBoxLayout, 
-                               QSpacerItem, QSizePolicy, QFrame)
+                               QSpacerItem, QSizePolicy, QFrame, QFileDialog)
 from PySide6.QtCore import Qt, QTimer, Signal
 import tmdb_api
 from ui.theme_manager import ThemeManager
+from download_manager import DownloadManager
+import database
+import os
 
 class SettingsPage(QWidget):
     api_key_changed = Signal()
@@ -143,6 +146,38 @@ class SettingsPage(QWidget):
         card_layout.addLayout(btn_layout)
         layout.addWidget(card)
         
+        # Download Directory Card
+        dl_card = QFrame()
+        dl_card.setStyleSheet("QFrame { background-color: transparent; border: none; }")
+        dl_card_layout = QVBoxLayout(dl_card)
+        dl_card_layout.setContentsMargins(24, 24, 24, 24)
+        dl_card_layout.setSpacing(16)
+        
+        dl_title = QLabel("Download Directory")
+        dl_title.setStyleSheet("font-size: 18px; font-weight: 600; color: #1AE0A1;")
+        dl_card_layout.addWidget(dl_title)
+        
+        dl_desc = QLabel("Select the target folder where your movies and TV series downloads should be saved.")
+        dl_desc.setStyleSheet("color: #A0AEC0; font-size: 13px;")
+        dl_desc.setWordWrap(True)
+        dl_card_layout.addWidget(dl_desc)
+        
+        dl_input_layout = QHBoxLayout()
+        self.dl_input = QLineEdit()
+        self.dl_input.setReadOnly(True)
+        self.dl_input.setText(DownloadManager().download_path)
+        
+        self.dl_browse_btn = QPushButton("Browse")
+        self.dl_browse_btn.setObjectName("editBtn")
+        self.dl_browse_btn.setCursor(Qt.PointingHandCursor)
+        self.dl_browse_btn.clicked.connect(self._on_browse_clicked)
+        
+        dl_input_layout.addWidget(self.dl_input)
+        dl_input_layout.addWidget(self.dl_browse_btn)
+        
+        dl_card_layout.addLayout(dl_input_layout)
+        layout.addWidget(dl_card)
+        
         # Appearance Card
         appearance_card = QFrame()
         appearance_card.setStyleSheet("QFrame { background-color: transparent; border: none; }")
@@ -162,23 +197,13 @@ class SettingsPage(QWidget):
         themes_layout = QHBoxLayout()
         themes_layout.setSpacing(15)
         
+        self.theme_btns = {}
         for theme_name, colors in ThemeManager.THEMES.items():
             btn = QPushButton()
             btn.setFixedSize(40, 40)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setToolTip(theme_name)
-            primary = colors["primary"]
-            btn.setStyleSheet(f"""
-                /* NOTHEME */
-                QPushButton {{
-                    background-color: {primary};
-                    border-radius: 20px;
-                    border: 2px solid transparent;
-                }}
-                QPushButton:hover {{
-                    border: 2px solid white;
-                }}
-            """)
+            self.theme_btns[theme_name] = btn
             btn.clicked.connect(lambda checked=False, t=theme_name: self._change_theme(t))
             themes_layout.addWidget(btn)
             
@@ -188,10 +213,43 @@ class SettingsPage(QWidget):
 
         layout.addStretch()
         
+        self._update_theme_buttons()
         ThemeManager.apply_theme_to_widget(self)
+
+    def _update_theme_buttons(self):
+        current = ThemeManager.get_current_theme_name()
+        for theme_name, btn in self.theme_btns.items():
+            primary = ThemeManager.THEMES[theme_name]["primary"]
+            
+            if theme_name == current:
+                btn.setText("✓")
+                btn.setStyleSheet(f"""
+                    /* NOTHEME */
+                    QPushButton {{
+                        background-color: {primary};
+                        border-radius: 20px;
+                        color: #0B0D14; /* Dark contrast for the checkmark */
+                        font-weight: bold;
+                        font-size: 20px;
+                        border: none;
+                        padding: 0px;
+                    }}
+                """)
+            else:
+                btn.setText("")
+                btn.setStyleSheet(f"""
+                    /* NOTHEME */
+                    QPushButton {{
+                        background-color: {primary};
+                        border-radius: 20px;
+                        border: none;
+                        padding: 0px;
+                    }}
+                """)
 
     def _change_theme(self, theme_name):
         ThemeManager.set_theme(theme_name)
+        self._update_theme_buttons()
 
     def _set_edit_mode(self, editing):
         self.api_input.setReadOnly(not editing)
@@ -236,3 +294,15 @@ class SettingsPage(QWidget):
             
         self.status_msg.show()
         QTimer.singleShot(3000, self.status_msg.hide)
+
+    def _on_browse_clicked(self):
+        current_dir = self.dl_input.text()
+        if not os.path.exists(current_dir):
+            current_dir = os.path.expanduser("~")
+            
+        dir_path = QFileDialog.getExistingDirectory(self, "Select Download Directory", current_dir)
+        if dir_path:
+            # Fix path separators to match OS
+            dir_path = os.path.normpath(dir_path)
+            self.dl_input.setText(dir_path)
+            DownloadManager().set_download_path(dir_path)

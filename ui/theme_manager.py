@@ -97,11 +97,7 @@ class ThemeManager:
     def apply_theme_to_svgs(cls):
         import os
         import sys
-        if getattr(sys, 'frozen', False):
-            base_dir = os.path.dirname(sys.executable)
-        else:
-            # Assuming this is in ui/theme_manager.py
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        base_dir = os.getcwd()
             
         icons_dir = os.path.join(base_dir, "assets", "icons")
         if not os.path.exists(icons_dir):

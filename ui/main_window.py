@@ -90,7 +90,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("The Stories I Carry")
         self.setMinimumSize(1200, 800)
         from PySide6.QtGui import QIcon
-        self.setWindowIcon(QIcon("assets/icons/main_logo.svg"))
+        self.setWindowIcon(QIcon("assets/icons/app_icon.svg"))
         
         self.all_detail_pages = []
         self.all_grid_pages = []
@@ -309,7 +309,7 @@ class MainWindow(QMainWindow):
         self.settings_btn.setIcon(QIcon("assets/icons/settings_active.svg" if self.settings_btn.isChecked() else "assets/icons/settings.svg"))
         if hasattr(self, 'logo_icon'):
             self.logo_icon.setPixmap(QIcon("assets/icons/main_logo.svg").pixmap(36, 36))
-        self.setWindowIcon(QIcon("assets/icons/main_logo.svg"))
+        self.setWindowIcon(QIcon("assets/icons/app_icon.svg"))
 
 
     def switch_page(self, index, active_btn):

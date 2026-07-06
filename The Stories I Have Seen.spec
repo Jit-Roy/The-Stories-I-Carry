@@ -10,7 +10,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['PyQt5', 'PyQt6', 'PySide2'],
+    excludes=['PyQt5', 'PyQt6', 'PySide2', 'torch', 'pandas', 'scipy', 'numpy', 'matplotlib', 'IPython', 'jupyter', 'tkinter'],
     noarchive=False,
     optimize=0,
 )
@@ -23,7 +23,7 @@ exe = EXE(
     exclude_binaries=True,
     name='The Stories I Have Seen',
     debug=False,
-    icon='assets/icons/main_logo.ico',
+    icon='assets/icons/app_icon.ico',
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
