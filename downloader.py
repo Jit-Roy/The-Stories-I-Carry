@@ -1,5 +1,6 @@
 import sys
-sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if sys.stdout is not None:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 import asyncio
 import os
 import time

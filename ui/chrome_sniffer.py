@@ -2,18 +2,56 @@ import os
 import sys
 import subprocess
 import asyncio
+import threading
+import urllib.parse
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QComboBox, 
     QLabel, QWidget
 )
-from PySide6.QtCore import Qt, Signal, QThread
+from PySide6.QtCore import Qt, Signal, QThread, QEvent
 from playwright.async_api import async_playwright
+
+def force_foreground_chrome(target_pid=None):
+    import ctypes
+    try:
+        def enum_windows_callback(hwnd, lParam):
+            length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+            if length > 0:
+                buff = ctypes.create_unicode_buffer(length + 1)
+                ctypes.windll.user32.GetWindowTextW(hwnd, buff, length + 1)
+                title = buff.value
+                
+                if "Google Chrome" in title or "Stream Preview" in title:
+                    is_match = False
+                    
+                    if target_pid is not None:
+                        # Check if this window belongs to the exact Chrome process we launched
+                        window_pid = ctypes.c_ulong()
+                        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(window_pid))
+                        if window_pid.value == target_pid:
+                            is_match = True
+                    else:
+                        # Fallback for "Stream Preview" which has a highly unique title
+                        if "Stream Preview" in title:
+                            is_match = True
+                            
+                    if is_match:
+                        if ctypes.windll.user32.IsIconic(hwnd):
+                            ctypes.windll.user32.ShowWindow(hwnd, 9) # SW_RESTORE
+                        ctypes.windll.user32.SetForegroundWindow(hwnd)
+                        return False # Stop enumerating
+            return True
+        
+        EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int))
+        ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), 0)
+    except:
+        pass
 
 class ChromeSnifferThread(QThread):
     stream_found = Signal(str, dict)
     log_msg = Signal(str)
     
-    preview_requested = Signal(str)
+    preview_requested = Signal(str, dict)
     cookies_fetched = Signal(list)
     
     def __init__(self, movie_url):
@@ -25,21 +63,17 @@ class ChromeSnifferThread(QThread):
         self.context = None
 
     def run(self):
-        # We need to run the async playwright code inside this thread
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
-        
-        # Connect the preview request signal to our async method
         self.preview_requested.connect(self._handle_preview_request)
-        
         try:
             self.loop.run_until_complete(self._sniff_loop())
         finally:
             self.loop.close()
             
-    def _handle_preview_request(self, stream_url):
+    def _handle_preview_request(self, stream_url, headers):
         if self.loop and self.context:
-            asyncio.run_coroutine_threadsafe(self._open_preview_tab(stream_url), self.loop)
+            asyncio.run_coroutine_threadsafe(self._open_preview_tab(stream_url, headers), self.loop)
             
     def fetch_cookies(self):
         if self.loop and self.context:
@@ -53,15 +87,46 @@ class ChromeSnifferThread(QThread):
             self.log_msg.emit(f"Cookie fetch error: {e}")
             self.cookies_fetched.emit([])
 
-    async def _open_preview_tab(self, stream_url):
+    async def _open_preview_tab(self, stream_url, headers):
         try:
             self.log_msg.emit("Opening preview tab in Chrome...")
             page = await self.context.new_page()
             
-            # Create a fake URL on vidsrc.sbs to bypass CORS and Referer restrictions
-            fake_url = "https://vidsrc.sbs/preview_player"
+            orig_referer = headers.get('referer', headers.get('Referer', 'https://vidsrc.sbs/'))
+            await page.set_extra_http_headers({'referer': orig_referer})
+            
+            actual_stream_url = stream_url
+            
+            parsed_stream = urllib.parse.urlparse(actual_stream_url)
+            base_url = f"{parsed_stream.scheme}://{parsed_stream.netloc}"
+            fake_url = f"{base_url}/__local_preview_player__"
+            
+            is_mp4 = '.mp4' in stream_url.lower()
             
             async def route_handler(route):
+                if is_mp4:
+                    script_logic = f"""
+                        video.src = '{actual_stream_url}';
+                        video.addEventListener('loadedmetadata', function() {{ player.play(); }});
+                    """
+                else:
+                    script_logic = f"""
+                        if (Hls.isSupported()) {{
+                            const hls = new Hls({{
+                                debug: false,
+                                enableWorker: true
+                            }});
+                            hls.loadSource('{actual_stream_url}');
+                            hls.attachMedia(video);
+                            hls.on(Hls.Events.MANIFEST_PARSED, function() {{ 
+                                player.play(); 
+                            }});
+                        }} else if (video.canPlayType('application/vnd.apple.mpegurl')) {{
+                            video.src = '{actual_stream_url}';
+                            video.addEventListener('loadedmetadata', function() {{ player.play(); }});
+                        }}
+                    """
+
                 html = f'''<!DOCTYPE html>
 <html>
 <head>
@@ -76,10 +141,9 @@ class ChromeSnifferThread(QThread):
     </style>
 </head>
 <body>
-    <video id="player" controls crossorigin playsinline></video>
+    <video id="player" controls playsinline></video>
     <script>
       const video = document.getElementById('player');
-      const videoSrc = '{stream_url}';
       
       const defaultOptions = {{
           controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
@@ -88,34 +152,26 @@ class ChromeSnifferThread(QThread):
       }};
 
         const player = new Plyr(video, defaultOptions);
-      if (Hls.isSupported()) {{
-        const hls = new Hls({{
-            debug: false,
-            enableWorker: true,
-            xhrSetup: function(xhr, url) {{
-                xhr.withCredentials = true;
-            }}
-        }});
-        hls.loadSource(videoSrc);
-        hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, function() {{ 
-            player.play(); 
-        }});
-      }} else if (video.canPlayType('application/vnd.apple.mpegurl')) {{
-        video.src = videoSrc;
-        video.addEventListener('loadedmetadata', function() {{ player.play(); }});
-      }}
+        
+        {script_logic}
     </script>
 </body>
 </html>'''
                 await route.fulfill(content_type="text/html", body=html)
 
-            # Only intercept our specific fake player URL
             await page.route(fake_url, route_handler)
+            
+            # Bring Chrome to the front instantly before the page even loads
+            await page.bring_to_front()
+            try:
+                force_foreground_chrome(self.chrome_proc.pid)
+            except Exception as e:
+                print(f"Foreground Error: {e}")
+                
             await page.goto(fake_url)
             
         except Exception as e:
-            self.log_msg.emit(f"Preview Error: {{str(e)}}")
+            self.log_msg.emit(f"Preview Error: {str(e)}")
 
     async def _sniff_loop(self):
         chrome_path = r'C:\Program Files\Google\Chrome\Application\chrome.exe'
@@ -126,241 +182,225 @@ class ChromeSnifferThread(QThread):
                 return
 
         user_data_dir = os.path.join(os.getcwd(), 'chrome_debug_profile')
-        
-        self.log_msg.emit("Launching Chrome...")
         self.chrome_proc = subprocess.Popen([
             chrome_path, 
             '--remote-debugging-port=9222', 
             f'--user-data-dir={user_data_dir}',
-            '--disable-web-security',
-            '--test-type',
-            'about:blank'
+            '--no-default-browser-check',
+            '--no-first-run',
+            self.movie_url
         ])
 
-        # Give chrome a few seconds to start the debugging port
         await asyncio.sleep(2)
-        
-        if not self.is_running:
-            return
+        if not self.is_running: return
+
+        try:
+            force_foreground_chrome(self.chrome_proc.pid)
+        except:
+            pass
 
         async with async_playwright() as p:
             try:
-                self.log_msg.emit("Connecting to Chrome Debugger...")
                 browser = await p.chromium.connect_over_cdp('http://localhost:9222')
                 contexts = browser.contexts
-                
-                if not contexts:
-                    self.log_msg.emit("Error: No browser contexts found.")
-                    return
+                if not contexts: return
                     
                 self.context = contexts[0]
                 pages = self.context.pages
-                
                 if not pages:
-                    # Sometimes the page takes a second to be registered in CDP
                     await asyncio.sleep(2)
                     pages = self.context.pages
-                    if not pages:
-                        self.log_msg.emit("Error: No pages found.")
-                        return
                 
-                # Get the first page
                 page = pages[0]
-                self.log_msg.emit(f"Connected! Loading {self.movie_url}...")
-
                 async def on_response(response):
                     url = response.url
-                    if response.status < 200 or response.status >= 300:
-                        return
-                        
+                    if response.status < 200 or response.status >= 300: return
                     headers = response.headers
                     content_type = headers.get('content-type', '').lower()
-                    
                     is_hls = 'mpegurl' in content_type or 'application/x-mpegurl' in content_type
                     is_mp4 = 'video/mp4' in content_type
-                    
-                    if is_hls or is_mp4:
-                        # Don't capture tiny fragments (like a 2-second .mp4 chunk or tiny ad playlist)
-                        if is_mp4:
-                            pass
-                            
+                    if is_hls or is_mp4 or '.m3u8' in url:
                         req_headers = await response.request.all_headers()
-                        self.stream_found.emit(url, req_headers)
-                    elif '.m3u8' in url:
-                        # Fallback for some sites that might not set the correct content-type but end in .m3u8
-                        req_headers = await response.request.all_headers()
-                        self.stream_found.emit(url, req_headers)
+                        # Filter out caching headers that cause yt-dlp to fail with 304 Not Modified
+                        filtered_headers = {k: v for k, v in req_headers.items() if k.lower() not in ['if-none-match', 'if-modified-since']}
+                        self.stream_found.emit(url, filtered_headers)
 
                 page.on('response', on_response)
+                self.context.on('page', lambda new_page: new_page.on('response', on_response))
                 
-                # Handle page reloads/navigations gracefully
-                async def on_framenavigated(frame):
-                    if frame == page.main_frame:
-                        self.log_msg.emit("Page refreshed. Re-attaching sniffer...")
-                        
-                page.on('framenavigated', on_framenavigated)
-                
-                # Handle new tabs/windows (like if a hard refresh creates a new page context)
-                def on_page(new_page):
-                    # We don't want to attach sniffer to our own preview tab
-                    if new_page.url == "https://vidsrc.sbs/preview_player": return
-                    self.log_msg.emit("New page detected, attaching sniffer...")
-                    new_page.on('response', on_response)
-                
-                self.context.on('page', on_page)
-
-                # Safely navigate to the target page without blocking the sniffer loop
-                async def safe_goto():
+                # Auto-refresh the page once after 2 seconds to fix the iframe timeout glitch
+                async def auto_refresh():
+                    await asyncio.sleep(2)
                     try:
-                        await page.goto(self.movie_url, wait_until="domcontentloaded", timeout=15000)
-                    except Exception as e:
-                        self.log_msg.emit(f"Page load timeout/error (ignored): {str(e)}")
-                
-                asyncio.create_task(safe_goto())
-                
-                # Keep listening until stopped
-                while self.is_running:
-                    # Check if the page was closed by the user
-                    if page.is_closed():
-                        self.log_msg.emit("Chrome window closed by user.")
-                        break
-                    await asyncio.sleep(0.5)
-                    
-                self.log_msg.emit("Closing connection...")
-                await browser.close()
-                
-            except Exception as e:
-                self.log_msg.emit(f"Sniffer Error: {str(e)}")
-            finally:
-                if self.chrome_proc:
-                    try:
-                        self.chrome_proc.terminate()
+                        await page.reload()
                     except:
                         pass
+                asyncio.create_task(auto_refresh())
+                
+                while self.is_running:
+                    if page.is_closed(): break
+                    await asyncio.sleep(0.5)
+                await browser.close()
+            finally:
+                if self.chrome_proc: self.chrome_proc.terminate()
 
     def stop(self):
         self.is_running = False
         if self.chrome_proc:
-            try:
-                self.chrome_proc.terminate()
-            except:
-                pass
-
+            try: self.chrome_proc.terminate()
+            except: pass
 
 class ChromeSnifferDialog(QDialog):
     def __init__(self, movie_id, parent=None, media_type="movie", season_number=1, episode_number=1):
-        super().__init__(parent)
+        super().__init__(parent.window() if parent else None)
         self.movie_id = movie_id
         self.media_type = media_type
         self.selected_m3u8 = None
-        if self.media_type == "tv":
-            self.embed_url = f"https://vidsrc.sbs/embed/tv/{self.movie_id}/{season_number}/{episode_number}"
-        else:
-            self.embed_url = f"https://vidsrc.sbs/embed/movie/{self.movie_id}"
+        self.embed_url = f"https://vidsrc.sbs/embed/tv/{self.movie_id}/{season_number}/{episode_number}" if self.media_type == "tv" else f"https://vidsrc.sbs/embed/movie/{self.movie_id}"
         self.stream_headers = {}
-        
         self.setWindowTitle("Chrome Stream Sniffer")
-        self.resize(600, 300)
+        self.resize(500, 300)
+        flags = self.windowFlags()
+        flags &= ~Qt.WindowContextHelpButtonHint
+        flags |= Qt.WindowMinimizeButtonHint
+        flags |= Qt.WindowCloseButtonHint
+        self.setWindowFlags(flags)
         self.setModal(True)
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #0F172A;
-            }
-            QLabel {
+        
+        from ui.theme_manager import ThemeManager
+        primary = ThemeManager.get_color("primary")
+        complementary = ThemeManager.get_color("complementary")
+        
+        self.setStyleSheet(f"""
+            QDialog {{ 
+                background-color: #1A1C23; 
                 color: white;
-                font-size: 14px;
-            }
-            QComboBox {
-                background-color: #1E293B;
-                color: white;
-                border: 1px solid #334155;
-                border-radius: 4px;
-                padding: 6px;
-            }
-            QPushButton {
-                background-color: #1AE0A1;
-                color: #0F172A;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
+            }}
+            QLabel {{ 
+                font-size: 14px; 
+                color: #E2E8F0;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #14B885;
-            }
-            QPushButton:disabled {
-                background-color: #334155;
-                color: #94A3B8;
-            }
-            #statusLabel {
-                color: #14B885;
-                font-style: italic;
-            }
+            }}
+            QComboBox {{ 
+                background-color: #2D3748; 
+                color: white; 
+                border: 1px solid #4A5568; 
+                border-radius: 4px; 
+                padding: 6px 10px; 
+                font-size: 13px;
+                combobox-popup: 0;
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 35px;
+            }}
+            QComboBox::down-arrow {{
+                image: url(assets/icons/down_arrow.svg);
+                width: 16px;
+                height: 16px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: #2D3748;
+                color: white;
+                selection-background-color: {primary};
+                selection-color: #0F172A;
+                border: 1px solid #4A5568;
+                outline: none;
+            }}
+            QPushButton {{ 
+                background-color: {primary}; 
+                color: #0F172A; 
+                border: none; 
+                border-radius: 6px; 
+                padding: 10px 16px; 
+                font-weight: bold; 
+                font-size: 14px;
+                margin: 2px;
+            }}
+            QPushButton:hover {{
+                margin: 0px;
+            }}
+            QPushButton:disabled {{ 
+                background-color: #334155; 
+                color: #94A3B8; 
+            }}
+            QPushButton#btnPreview {{ 
+                background-color: {complementary}; 
+                color: white; 
+            }}
+            QPushButton#btnPreview:hover {{
+                margin: 0px;
+            }}
+            #statusLabel {{ 
+                color: {primary}; 
+                font-style: italic; 
+                font-weight: normal;
+                margin-top: 10px;
+                margin-bottom: 20px;
+            }}
         """)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
         layout.setContentsMargins(25, 25, 25, 25)
-
-        lbl_inst = QLabel("Chrome is opening. Please play the video in the Chrome window.\nAs soon as the video starts, the detected streams will appear below.")
+        
+        lbl_inst = QLabel("Chrome is opening. Please play the video to capture the stream.")
         lbl_inst.setWordWrap(True)
         layout.addWidget(lbl_inst)
-
-        self.lbl_status = QLabel("Status: Starting up...")
+        
+        self.lbl_status = QLabel("Status: Starting...")
         self.lbl_status.setObjectName("statusLabel")
         layout.addWidget(self.lbl_status)
-
+        
+        layout.addWidget(QLabel("Detected Streams:"))
         self.combo_streams = QComboBox()
+        self.combo_streams.setMaxVisibleItems(8)
         self.combo_streams.currentIndexChanged.connect(self._on_combo_changed)
         layout.addWidget(self.combo_streams)
         
         layout.addStretch()
-
+        
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
         self.btn_preview = QPushButton("▶ Preview")
+        self.btn_preview.setObjectName("btnPreview")
         self.btn_preview.setEnabled(False)
-        self.btn_preview.setStyleSheet("""
-            QPushButton {
-                background-color: #3B82F6; color: white; border-radius: 4px; padding: 8px 16px; font-weight: bold;
-            }
-            QPushButton:hover { background-color: #2563EB; }
-            QPushButton:disabled { background-color: #334155; color: #94A3B8; }
-        """)
         self.btn_preview.clicked.connect(self._on_preview)
-
-        self.btn_proceed = QPushButton("Download Selected Stream")
+        
+        self.btn_proceed = QPushButton("Download")
         self.btn_proceed.setEnabled(False)
         self.btn_proceed.clicked.connect(self._on_proceed)
         
-        btn_cancel = QPushButton("Cancel")
-        btn_cancel.setStyleSheet("background-color: #EF4444; color: white; border-radius: 4px; padding: 8px 16px; font-weight: bold;")
-        btn_cancel.clicked.connect(self.reject)
-        
-        btn_layout.addStretch()
         btn_layout.addWidget(self.btn_preview)
-        btn_layout.addWidget(btn_cancel)
         btn_layout.addWidget(self.btn_proceed)
         layout.addLayout(btn_layout)
-
-        # Start the sniffer thread
+        
         self.thread = ChromeSnifferThread(self.embed_url)
         self.thread.stream_found.connect(self._on_stream_found)
         self.thread.log_msg.connect(self._on_log)
         self.thread.cookies_fetched.connect(self._on_cookies_fetched)
         self.thread.start()
 
+    def changeEvent(self, event):
+        if event.type() == QEvent.Type.WindowStateChange:
+            if self.isMinimized():
+                if self.parentWidget():
+                    self.parentWidget().showMinimized()
+            elif self.windowState() == Qt.WindowNoState:
+                if self.parentWidget() and self.parentWidget().isMinimized():
+                    self.parentWidget().showNormal()
+        super().changeEvent(event)
+
     def _on_log(self, msg):
         self.lbl_status.setText(f"Status: {msg}")
 
     def _on_stream_found(self, url, headers):
-        # Avoid exact duplicates
         for i in range(self.combo_streams.count()):
             if self.combo_streams.itemText(i) == url:
                 return
                 
         self.stream_headers[url] = headers
         self.combo_streams.addItem(url)
-        self.combo_streams.setCurrentIndex(self.combo_streams.count() - 1)
         self.lbl_status.setText(f"Status: Sniffed {self.combo_streams.count()} streams!")
 
     def _on_combo_changed(self, index):
@@ -375,9 +415,10 @@ class ChromeSnifferDialog(QDialog):
         current_text = self.combo_streams.currentText()
         if not current_text: return
         
+        headers = self.stream_headers.get(current_text, {})
         # Instead of ffplay, tell the Playwright thread to open a new tab 
         # with our hls.js player, completely bypassing CORS natively!
-        self.thread.preview_requested.emit(current_text)
+        self.thread.preview_requested.emit(current_text, headers)
 
     def _on_proceed(self):
         current_text = self.combo_streams.currentText()

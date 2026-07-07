@@ -1,5 +1,10 @@
 import sys
 import os
+
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, 'w')
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, 'w')
 from PySide6.QtWidgets import QApplication
 from ui.main_window import MainWindow
 import database
@@ -42,27 +47,20 @@ def main():
     import ctypes
     from PySide6.QtGui import QIcon
     
-    # ==========================================
-    # OS-SPECIFIC ICON & TASKBAR INITIALIZATION
-    # ==========================================
-    if getattr(sys, 'frozen', False):
-        # 1. COMPILED WINDOWS EXE MODE
-        # No AppUserModelID is set so Windows perfectly inherits the .exe icon at 0ms.
-        app = QApplication(sys.argv)
-        app.setWindowIcon(QIcon("assets/icons/app_icon.ico"))
-    else:
-        # 2. RAW PYTHON SCRIPT MODE
-        # We must override the default python.exe icon using AppUserModelID
-        import ctypes
-        myappid = 'JitRoy.TheStoriesIHaveSeen.app.1.0'
-        try:
+    # Setting AppUserModelID globally BEFORE QApplication fixes the Windows 11 
+    # taskbar click-to-minimize bug by properly syncing the process HWND group,
+    # while retaining the 0ms icon load because it happens before Qt initializes.
+    myappid = 'TheStoriesIHaveSeen.app.1.0'
+    try:
+        # Only set this manually if running from Python. 
+        # Setting it in a compiled .exe detaches it from the embedded executable icon!
+        if not getattr(sys, 'frozen', False):
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
-        except Exception:
-            pass
-            
-        app = QApplication(sys.argv)
-        app.setWindowIcon(QIcon("assets/icons/app_icon.ico"))
-    # ==========================================
+    except Exception:
+        pass
+        
+    app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon("assets/icons/app_icon.ico"))
     
     # Pre-load themes to ensure SVGs are customized
     from ui.theme_manager import ThemeManager
