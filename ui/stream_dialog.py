@@ -10,51 +10,53 @@ class StreamSelectionDialog(QDialog):
         self.results = results
         self.setWindowTitle("Select Stream Options")
         self.setFixedSize(400, 300)
-        self.setStyleSheet("""
-            QDialog {
+        
+        from ui.theme_manager import ThemeManager
+        primary = ThemeManager.get_color("primary")
+        
+        self.setStyleSheet(f"""
+            QDialog {{
                 background-color: #1A1C23;
                 color: white;
-            }
-            QLabel {
+            }}
+            QLabel {{
                 font-size: 14px;
                 color: #E2E8F0;
                 font-weight: bold;
-            }
-            QComboBox {
+            }}
+            QComboBox {{
                 background-color: #2D3748;
                 color: white;
                 border: 1px solid #4A5568;
                 border-radius: 4px;
                 padding: 6px;
                 font-size: 13px;
-            }
-            QComboBox::drop-down {
+                combobox-popup: 0;
+            }}
+            QComboBox::drop-down {{
                 border: none;
-            }
-            QComboBox QAbstractItemView {
+            }}
+            QComboBox QAbstractItemView {{
                 background-color: #2D3748;
                 color: white;
-                selection-background-color: #14B885;
-            }
-            QPushButton {
-                background-color: #14B885;
-                color: white;
+                selection-background-color: {primary};
+                selection-color: #0F172A;
+                border: 1px solid #4A5568;
+                outline: none;
+            }}
+            QPushButton {{
+                background-color: {primary};
+                color: #0F172A;
                 border-radius: 6px;
                 padding: 8px 16px;
                 font-weight: bold;
                 font-size: 14px;
                 border: none;
-            }
-            QPushButton:hover {
-                background-color: #1AE0A1;
-            }
-            QPushButton#btnCancel {
-                background-color: transparent;
-                border: 1px solid #4A5568;
-            }
-            QPushButton#btnCancel:hover {
-                background-color: rgba(255,255,255,0.1);
-            }
+                margin: 2px;
+            }}
+            QPushButton:hover {{
+                margin: 0px;
+            }}
         """)
 
         layout = QVBoxLayout(self)
@@ -82,14 +84,11 @@ class StreamSelectionDialog(QDialog):
 
         # Buttons
         btn_layout = QHBoxLayout()
-        btn_cancel = QPushButton("Cancel")
-        btn_cancel.setObjectName("btnCancel")
-        btn_cancel.clicked.connect(self.reject)
         
         btn_confirm = QPushButton("Confirm Download")
         btn_confirm.clicked.connect(self.accept)
         
-        btn_layout.addWidget(btn_cancel)
+        btn_layout.addStretch()
         btn_layout.addWidget(btn_confirm)
         layout.addLayout(btn_layout)
 

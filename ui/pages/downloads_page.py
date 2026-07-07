@@ -60,7 +60,8 @@ class CircularProgressPoster(QWidget):
             elif self.status == "Paused":
                 color = QColor("#ff9800")
             else:
-                color = QColor("#14B885")
+                from ui.theme_manager import ThemeManager
+                color = QColor(ThemeManager.get_color("primary"))
                 
             ring_rect = QRectF(20, 40, 40, 40)
             
@@ -284,15 +285,17 @@ class DownloadItemWidget(QFrame):
             except Exception:
                 pass
             self.action_btn.clicked.connect(self.open_folder)
-            self.action_btn.setStyleSheet("""
-                QPushButton {
+            from ui.theme_manager import ThemeManager
+            rgba_base = ThemeManager.get_color("rgba_base")
+            self.action_btn.setStyleSheet(f"""
+                QPushButton {{
                     background-color: transparent;
                     border: none;
                     border-radius: 20px;
-                }
-                QPushButton:hover {
-                    background-color: rgba(20, 184, 133, 0.1);
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: rgba({rgba_base}, 0.2);
+                }}
             """)
         elif status == "Paused":
             self.action_btn.setIcon(QIcon("assets/icons/play.svg"))
