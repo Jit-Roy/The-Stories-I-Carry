@@ -344,12 +344,7 @@ class MainWindow(QMainWindow):
                 self.wishlist_page.load_lists()
             elif index == 5:
                 self.analytics_page.load_data()
-            elif index == 1:
-                import ui.components as components
-                self.movies_page.filter_bar.set_params(components.GLOBAL_FILTER_STATE)
-            elif index == 2:
-                import ui.components as components
-                self.tv_page.filter_bar.set_params(components.GLOBAL_FILTER_STATE)
+
 
         # Restore this tab's own saved search text LAST so nothing can overwrite it
         if hasattr(self, "search_bar"):
@@ -594,12 +589,16 @@ class MainWindow(QMainWindow):
                         return PersonCard(item, lambda p: self.show_person_detail(p["id"]), card_width=160, card_height=280, img_width=160, img_height=240)
                     return MovieCard(item, self.change_status, self.show_movie_detail)
                     
-                self.show_grid_view(f"Search Results for '{query}'", lambda page: tmdb_api.search_multi(query, page), {"query": query}, renderer)
+                self.show_grid_view(f"Search Results for '{query}'", lambda page: tmdb_api.search_multi(query, page), {"query": query}, renderer, media_type="multi")
 
         # Hitting Enter in the search bar acts exactly like clicking "Discover"
         if t_stack.currentIndex() == 2 and getattr(t_stack, "is_text_search", False):
             fb = getattr(t_stack.grid_page, "filter_bar", None)
-            if fb is not None and fb.isVisible():
+            query = self.search_bar.text().strip()
+            if not query:
+                # Search bar was cleared — go back to the Discover home page
+                self.go_back_to_previous_page()
+            elif fb is not None and fb.isVisible():
                 fb._apply()
             elif t_stack.tab_index == 0:
                 _do_discover_search()
@@ -611,11 +610,8 @@ class MainWindow(QMainWindow):
             self.tv_page.filter_bar._apply()
         else:
             # Not on home page and not on a search grid, let's switch to discover and search
-            query = self.search_bar.text().strip()
             self.switch_page(0, self.discover_btn)
-            if query:
-                import tmdb_api
-                self.show_grid_view(f"Search Results for '{query}'", lambda page: tmdb_api.search_multi(query, page), {"query": query})
+            _do_discover_search()
 
     def go_back_to_previous_page(self):
         t_stack = self.main_stack.currentWidget()
@@ -631,12 +627,7 @@ class MainWindow(QMainWindow):
                 self.wishlist_page.load_lists()
             elif t_stack.tab_index == 5:
                 self.analytics_page.load_data()
-            elif t_stack.tab_index == 1:
-                import ui.components as components
-                self.movies_page.filter_bar.set_params(components.GLOBAL_FILTER_STATE)
-            elif t_stack.tab_index == 2:
-                import ui.components as components
-                self.tv_page.filter_bar.set_params(components.GLOBAL_FILTER_STATE)
+
         elif prev_index == 1 and state and t_stack.detail_page:
             t_stack.detail_page.load_movie(state)
         elif prev_index == 2 and isinstance(state, dict):

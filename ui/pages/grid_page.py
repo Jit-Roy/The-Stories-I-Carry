@@ -163,9 +163,11 @@ class GridPage(QWidget):
                 original    = self._original_fetch_func
                 PAGE_SIZE   = 20
                 MAX_FETCHES = 15
+                # Fresh state dict per filter application — never shared between closures
                 state = {"api_page": 1, "buffer": [], "done": False}
 
                 def filtered_fetch(page, _show_me=show_me, _orig=original, _s=state):
+                    # Always reset on page 1 (filter was just re-applied)
                     if page == 1:
                         _s["api_page"] = 1
                         _s["buffer"]   = []
@@ -201,6 +203,9 @@ class GridPage(QWidget):
         query = params.get("query")
         if query:
             self.current_title = f"Search Results: '{query}'"
+        elif self.current_title.startswith("Search Results"):
+            # Query was cleared — title is stale, reset to neutral
+            self.current_title = "Discover Results"
         self.title_label.setText(self.current_title)
         self.clear_grid()
         self.seen_movie_ids = set()

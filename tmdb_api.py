@@ -55,6 +55,8 @@ def invalidate_db_cache():
     _db_status_cache = None
     # Also clear the details cache so stale statuses are not served
     _details_cache.clear()
+    # Clear the person credits cache — inject_db_status runs on those too
+    _person_credits_cache.clear()
 
 
 def _make_request(endpoint, params=None, retries=3):
@@ -380,36 +382,43 @@ def get_person_details(person_id):
         "credits": inject_db_status(formatted_credits[:20]) # Top 20 credits
     }
 
+_person_credits_cache = {}   # person_id -> sorted, deduped formatted credits list
+
 def get_person_full_credits(person_id, page=1):
-    data = _make_request(f"/person/{person_id}", {"append_to_response": "combined_credits"})
-    if not data:
-        return []
-        
-    credits = data.get("combined_credits", {})
-    cast_credits = credits.get("cast", [])
-    
-    # Sort by popularity
-    cast_credits = sorted(cast_credits, key=lambda x: x.get("popularity", 0), reverse=True)
-    
-    formatted_credits = []
-    seen_ids = set()
-    for c in cast_credits:
-        cid = c.get("id")
-        if cid in seen_ids:
-            continue
-        seen_ids.add(cid)
-        
-        if c.get("media_type") == "tv":
-            formatted_credits.append(_format_tv(c))
+    if person_id not in _person_credits_cache:
+        data = _make_request(f"/person/{person_id}", {"append_to_response": "combined_credits"})
+        if not data:
+            _person_credits_cache[person_id] = []
         else:
-            formatted_credits.append(_format_movie(c))
+            credits = data.get("combined_credits", {})
+            cast_credits = credits.get("cast", [])
             
+            # Sort by popularity
+            cast_credits = sorted(cast_credits, key=lambda x: x.get("popularity", 0), reverse=True)
+            
+            formatted_credits = []
+            seen_ids = set()
+            for c in cast_credits:
+                cid = c.get("id")
+                if cid in seen_ids:
+                    continue
+                seen_ids.add(cid)
+                
+                if c.get("media_type") == "tv":
+                    formatted_credits.append(_format_tv(c))
+                else:
+                    formatted_credits.append(_format_movie(c))
+            
+            _person_credits_cache[person_id] = formatted_credits
+            
+    all_credits = _person_credits_cache[person_id]
+        
     # Manually paginate (20 items per page)
     start_idx = (page - 1) * 20
     end_idx = start_idx + 20
-    page_items = formatted_credits[start_idx:end_idx]
+    page_items = all_credits[start_idx:end_idx]
     
-    return inject_db_status(page_items)
+    return inject_db_status(list(page_items))
 
 
 from functools import lru_cache
@@ -457,74 +466,111 @@ def advanced_discover(params, page=1, media_type="movie"):
     show_me = params.pop("show_me", None)
     query = params.pop("query", None)
     endpoint_search = f"/search/{media_type}"
-    endpoint_discover = f"/discover/{media_type}"
-    formatter = _format_tv if media_type == "tv" else _format_movie
+    # /discover/multi does not exist on TMDB — fall back to movie when no query
+    _discover_type = media_type if media_type != "multi" else "movie"
+    endpoint_discover = f"/discover/{_discover_type}"
+    
+    def get_formatter():
+        if media_type == "multi":
+            def _multi_fmt(item):
+                mt = item.get("media_type", "movie")  # /discover/movie results don't carry media_type
+                if mt == "tv": return _format_tv(item)
+                if mt == "person":
+                    profile = item.get("profile_path")
+                    return {
+                        "id": item.get("id"),
+                        "name": item.get("name"),
+                        "profile_path": f"{IMAGE_BASE_URL}{profile}" if profile else None,
+                        "media_type": "person"
+                    }
+                return _format_movie(item)  # default: movie
+            return _multi_fmt
+        return _format_tv if media_type == "tv" else _format_movie
 
-    if query:
-        cache_key = f"{query}_{params}_{show_me}_{media_type}"
-        if page == 1 or cache_key not in _search_cache:
-            search_params = {"query": query, "language": "en-US"}
-            filtered = []
-            for p in range(1, 4):
-                search_params["page"] = p
-                data = _make_request(endpoint_search, search_params)
-                raw_movies = data.get("results", [])
+    formatter = get_formatter()
 
-                for m in raw_movies:
-                    genres_str = params.get("with_genres")
-                    if genres_str:
-                        req_genres = set(int(x) for x in genres_str.split(","))
-                        m_genres = set(m.get("genre_ids", []))
-                        if not m_genres.intersection(req_genres):
-                            continue
-
-                    min_rating = params.get("vote_average.gte")
-                    if min_rating and m.get("vote_average", 0) < float(min_rating):
-                        continue
-
-                    req_lang = params.get("with_original_language")
-                    if req_lang and m.get("original_language") != req_lang:
-                        continue
-
-                    # Filter dates
-                    date_field = "first_air_date" if media_type == "tv" else "release_date"
-                    date_gte = params.get(f"{date_field}.gte") or params.get("primary_release_date.gte")
-                    date_lte = params.get(f"{date_field}.lte") or params.get("primary_release_date.lte")
-                    
-                    if date_gte or date_lte:
-                        rel_date = m.get(date_field)
-                        if not rel_date:
-                            continue
-                        if date_gte and rel_date < date_gte:
-                            continue
-                        if date_lte and rel_date > date_lte:
-                            continue
-
-                    filtered.append(m)
-
-                if p >= data.get("total_pages", 1):
-                    break
-
-            _search_cache[cache_key] = filtered
-
-        filtered = _search_cache[cache_key]
-
-        # Apply show_me to the ENTIRE cached list before paginating,
-        # so pages always contain up to 20 visible items and "Load More"
-        # is never hidden early because a single page happened to be all-watched.
-        all_formatted = inject_db_status([formatter(m) for m in filtered])
-        if show_me == "unseen":
-            all_formatted = [m for m in all_formatted if m["status"] != "watched"]
-        elif show_me == "unseen_unwishlisted":
-            all_formatted = [m for m in all_formatted if m["status"] not in ("watched", "watch_later")]
-
-        start_idx = (page - 1) * 20
-        end_idx   = start_idx + 20
-        return all_formatted[start_idx:end_idx]
-
-    # ── Discover (no query) ──────────────────────────────────────────────────
     PAGE_SIZE = 20
     MAX_PAGES_PER_CALL = 10
+
+    if query:
+        params_key = f"{query}_{str(sorted(params.items()))}_{show_me}"
+        cursor_key   = f"__search_cursor_{params_key}_{media_type}"
+        overflow_key = f"__search_overflow_{params_key}_{media_type}"
+
+        if page == 1:
+            _search_cache[cursor_key] = 1
+            _search_cache[overflow_key] = []
+
+        tmdb_page = _search_cache.get(cursor_key, 1)
+        collected = list(_search_cache.get(overflow_key, []))
+        pages_fetched = 0
+        
+        while len(collected) < PAGE_SIZE and pages_fetched < MAX_PAGES_PER_CALL:
+            search_params = {"query": query, "language": "en-US", "page": tmdb_page}
+            data = _make_request(endpoint_search, search_params)
+            raw_movies = data.get("results", [])
+            total_tmdb_pages = data.get("total_pages", 1)
+
+            filtered = []
+            for m in raw_movies:
+                m_type = m.get("media_type", media_type)
+                
+                if m_type == "person":
+                    filtered.append(m)
+                    continue
+                    
+                genres_str = params.get("with_genres")
+                if genres_str:
+                    req_genres = set(int(x) for x in genres_str.split(","))
+                    m_genres = set(m.get("genre_ids", []))
+                    if not m_genres.intersection(req_genres):
+                        continue
+
+                min_rating = params.get("vote_average.gte")
+                if min_rating and m.get("vote_average", 0) < float(min_rating):
+                    continue
+
+                req_lang = params.get("with_original_language")
+                if req_lang and m.get("original_language") != req_lang:
+                    continue
+
+                # Filter dates
+                date_field = "first_air_date" if m_type == "tv" else "release_date"
+                date_gte = params.get(f"{date_field}.gte") or params.get("primary_release_date.gte")
+                date_lte = params.get(f"{date_field}.lte") or params.get("primary_release_date.lte")
+                
+                if date_gte or date_lte:
+                    rel_date = m.get(date_field)
+                    if not rel_date:
+                        continue
+                    if date_gte and rel_date < date_gte:
+                        continue
+                    if date_lte and rel_date > date_lte:
+                        continue
+
+                filtered.append(m)
+
+            formatted = inject_db_status([formatter(m) for m in filtered])
+            
+            if show_me == "unseen":
+                formatted = [m for m in formatted if m.get("media_type") == "person" or m.get("status") != "watched"]
+            elif show_me == "unseen_unwishlisted":
+                formatted = [m for m in formatted if m.get("media_type") == "person" or m.get("status") not in ("watched", "watch_later")]
+
+            collected.extend(formatted)
+            tmdb_page += 1
+            pages_fetched += 1
+
+            if tmdb_page > total_tmdb_pages:
+                break
+
+        _search_cache[cursor_key] = tmdb_page
+        out = collected[:PAGE_SIZE]
+        _search_cache[overflow_key] = collected[PAGE_SIZE:]
+
+        return out
+
+    # ── Discover (no query) ──────────────────────────────────────────────────
 
     if show_me not in ("unseen", "unseen_unwishlisted"):
         api_params = {"language": "en-US", "page": page}

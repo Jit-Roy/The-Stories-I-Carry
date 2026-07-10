@@ -667,7 +667,6 @@ class MultiSelectComboBox(FilterComboBox):
 class DiscoverFilterBarSignals(QObject):
     filters_applied = Signal(dict)
 
-GLOBAL_FILTER_STATE = {}
 
 class DiscoverFilterBar(QWidget):
     def __init__(self, track_global_state=True):
@@ -959,11 +958,13 @@ class DiscoverFilterBar(QWidget):
     def set_params(self, params):
         if params is None:
             params = {}
-            
-        # Retain parameters that don't have a UI control
+
+        # Retain parameters that don't have a UI control.
+        # Note: 'query' is intentionally kept in base_params so search-result
+        # filter bars remember what was searched.
         ui_keys = ["show_me", "with_genres", "sort_by", "with_original_language", 
                   "with_origin_country", "primary_release_date.gte", 
-                  "primary_release_date.lte", "vote_average.gte", "query"]
+                  "primary_release_date.lte", "vote_average.gte"]
         self.base_params = {k: v for k, v in params.items() if k not in ui_keys}
 
         if "show_me" in params:
@@ -1054,19 +1055,18 @@ class DiscoverFilterBar(QWidget):
         if rating:
             params["vote_average.gte"] = rating
 
-        # Hook up the main search bar to combine keyword and filters
-        main_win = self.window()
-        if hasattr(main_win, "search_bar"):
-            query = main_win.search_bar.text().strip()
-            if query:
-                params["query"] = query
-
-        # Only update global state for top-level filter bars (Movies/TV tabs).
-        # Grid-page filter bars are context-specific and must NOT pollute the
-        # global state with params like with_companies, with_cast, etc.
-        if self._track_global_state:
-            global GLOBAL_FILTER_STATE
-            GLOBAL_FILTER_STATE.clear()
-            GLOBAL_FILTER_STATE.update(params)
+        # If this is a search-results filter bar (base_params has a query),
+        # read the current search bar text so typing a new term and clicking
+        # Discover always searches for what's currently in the bar.
+        if "query" in self.base_params:
+            main_win = self.window()
+            if hasattr(main_win, "search_bar"):
+                live_query = main_win.search_bar.text().strip()
+                if live_query:
+                    params["query"] = live_query
+                else:
+                    # Search bar was cleared — remove the stale query that
+                    # base_params.copy() brought in, so we get Discover results.
+                    params.pop("query", None)
 
         self.signals.filters_applied.emit(params)

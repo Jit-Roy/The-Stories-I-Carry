@@ -323,6 +323,7 @@ class DiscoverPage(QWidget):
 
     def load_discover_content(self):
         self.clear_layout()
+        CategoryCard._color_index = 0  # reset so colours are always consistent
         
         # 1. Studios
         studios_car = self._build_hardcoded_carousel("Iconic Studios", POPULAR_STUDIOS, lambda d: CategoryCard(d, self.on_category_clicked))
