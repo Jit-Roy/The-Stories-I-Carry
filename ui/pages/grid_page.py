@@ -92,7 +92,12 @@ class GridPage(QWidget):
 
         # Brand new instance — zero memory of any previous search
         bar = DiscoverFilterBar(track_global_state=False)
-        bar.populate_genres(tmdb_api.get_genres())
+        
+        m_type = getattr(self, "current_media_type", "movie")
+        if m_type not in ["movie", "tv"]:
+            m_type = "movie"
+            
+        bar.populate_genres(tmdb_api.get_genres(m_type))
         bar.populate_languages(tmdb_api.get_languages())
         bar.populate_countries(tmdb_api.get_countries())
         bar.set_params(initial_params if initial_params else {})

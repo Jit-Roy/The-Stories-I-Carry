@@ -24,7 +24,10 @@ class _TvSectionWorker(QRunnable):
         except Exception as e:
             print(f"TvSectionWorker ({self.key}) error: {e}")
             results = []
-        self.signals.finished.emit(self.key, results)
+        try:
+            self.signals.finished.emit(self.key, results)
+        except RuntimeError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -86,9 +89,21 @@ class TvPage(QWidget):
 
     def apply_advanced_filters(self, params):
         fetch_params = params.copy()
+        # Also pull the current search-bar text so the TV filter bar
+        # honours whatever the user typed before clicking Discover.
+        main_win = self.window()
+        if hasattr(main_win, "search_bar"):
+            live_query = main_win.search_bar.text().strip()
+            if live_query:
+                fetch_params["query"] = live_query
         query = fetch_params.get("query")
         title = f"Search Results: '{query}'" if query else "Discover Results"
-        self.on_view_all(title, lambda page: tmdb_api.advanced_discover(fetch_params, page=page, media_type="tv"), fetch_params, media_type="tv")
+        self.on_view_all(
+            title,
+            lambda page, _fp=fetch_params: tmdb_api.advanced_discover(_fp, page=page, media_type="tv"),
+            fetch_params,
+            media_type="tv"
+        )
 
     # ------------------------------------------------------------------
     # Async loading — launch all workers concurrently
@@ -112,7 +127,7 @@ class TvPage(QWidget):
             ("popular",   tmdb_api.get_popular_tv),
             ("upcoming",  tmdb_api.get_upcoming_tv),
             ("top_rated", tmdb_api.get_top_rated_tv),
-            ("genres",    tmdb_api.get_genres),
+            ("genres",    lambda: tmdb_api.get_genres(media_type="tv")),
             ("languages", tmdb_api.get_languages),
             ("countries", tmdb_api.get_countries),
         ]
@@ -192,13 +207,21 @@ class TvPage(QWidget):
             "Trending",
             trending,
             lambda m: MovieCard(m, self.change_status, self.on_movie_click),
-            lambda: self.on_view_all(f"Trending {self.trending_toggle.current}", fetch_trending),
+            lambda: self.on_view_all(f"Trending {self.trending_toggle.current}", fetch_trending, media_type="tv"),
             custom_header_widget=self.trending_toggle,
         )
 
         def on_trending_toggled(opt):
-            new_data = fetch_trending(1)
-            self.trending_carousel.update_items(new_data)
+            # Fetch off the GUI thread so the UI doesn't freeze during the network call
+            def _fetch():
+                return fetch_trending(1)
+            worker = _TvSectionWorker("trending_toggle", _fetch)
+            def _done(key, data):
+                if data:
+                    self.trending_carousel.update_items(data)
+            worker.signals.finished.connect(_done)
+            from PySide6.QtCore import QThreadPool
+            QThreadPool.globalInstance().start(worker)
 
         self.trending_toggle.toggled.connect(on_trending_toggled)
         vbox.addWidget(self.trending_carousel)
@@ -211,7 +234,7 @@ class TvPage(QWidget):
             "Popular",
             popular,
             lambda m: MovieCard(m, self.change_status, self.on_movie_click),
-            lambda: self.on_view_all("Popular", fetch_fn),
+            lambda: self.on_view_all("Popular", fetch_fn, media_type="tv"),
         )
         self._swap_placeholder("popular", self.popular_carousel)
 
@@ -221,7 +244,7 @@ class TvPage(QWidget):
             "Top Rated",
             top_rated,
             lambda m: MovieCard(m, self.change_status, self.on_movie_click),
-            lambda: self.on_view_all("Top Rated", fetch_fn),
+            lambda: self.on_view_all("Top Rated", fetch_fn, media_type="tv"),
         )
         self._swap_placeholder("top_rated", self.top_rated_carousel)
 
@@ -232,7 +255,7 @@ class TvPage(QWidget):
             title,
             upcoming,
             lambda m: MovieCard(m, self.change_status, self.on_movie_click),
-            lambda: self.on_view_all(title, fetch_fn),
+            lambda: self.on_view_all(title, fetch_fn, media_type="tv"),
         )
         self._swap_placeholder("upcoming", self.upcoming_carousel)
 

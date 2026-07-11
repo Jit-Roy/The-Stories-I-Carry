@@ -13,6 +13,8 @@ os.makedirs(_CACHE_DIR, exist_ok=True)
 
 _MEM_CACHE_MAX = 300            # max number of images kept in RAM
 _mem_cache: dict[str, bytes] = {}   # url -> raw bytes (insertion-ordered in Python 3.7+)
+import threading
+_cache_lock = threading.Lock()
 ACTIVE_LOADERS = set()
 
 
@@ -23,20 +25,26 @@ def _url_to_cache_path(url: str) -> str:
 
 def _mem_put(url: str, data: bytes):
     """Insert into in-memory LRU cache, evicting oldest entry when full."""
-    if url in _mem_cache:
-        _mem_cache.pop(url)          # re-insert at end (most recently used)
-    elif len(_mem_cache) >= _MEM_CACHE_MAX:
-        _mem_cache.pop(next(iter(_mem_cache)))  # evict oldest
-    _mem_cache[url] = data
+    with _cache_lock:
+        if url in _mem_cache:
+            _mem_cache.pop(url)          # re-insert at end (most recently used)
+        elif len(_mem_cache) >= _MEM_CACHE_MAX:
+            try:
+                _mem_cache.pop(next(iter(_mem_cache)))  # evict oldest
+            except (RuntimeError, StopIteration, KeyError):
+                pass
+        _mem_cache[url] = data
 
 
 def _get_cached_image(url: str) -> bytes | None:
     """Check memory cache first, then disk cache."""
-    if url in _mem_cache:
-        # Promote to end (LRU touch)
-        data = _mem_cache.pop(url)
-        _mem_cache[url] = data
-        return data
+    with _cache_lock:
+        if url in _mem_cache:
+            # Promote to end (LRU touch)
+            data = _mem_cache.pop(url)
+            _mem_cache[url] = data
+            return data
+            
     path = _url_to_cache_path(url)
     if os.path.exists(path):
         try:

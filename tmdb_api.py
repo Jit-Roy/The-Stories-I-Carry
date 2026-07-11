@@ -45,7 +45,7 @@ def _get_db_status_map():
     global _db_status_cache
     if _db_status_cache is None:
         import database
-        _db_status_cache = {m["id"]: m["status"] for m in database.get_movies()}
+        _db_status_cache = {f"{m.get('media_type', 'movie')}_{m['id']}": m["status"] for m in database.get_movies()}
     return _db_status_cache
 
 
@@ -104,7 +104,8 @@ def inject_db_status(movies_list):
         return movies_list
     db_cache = _get_db_status_map()
     for m in movies_list:
-        m["status"] = db_cache.get(m["id"])
+        m_type = m.get("media_type", "movie")
+        m["status"] = db_cache.get(f"{m_type}_{m['id']}")
     return movies_list
 
 
@@ -277,7 +278,8 @@ def get_tv_details(tv_id):
     tv["seasons"] = data.get("seasons", [])
     tv["overview"] = data.get("overview")
     ep_run = data.get("episode_run_time", [])
-    tv["runtime"] = ep_run[0] if ep_run else None
+    num_episodes = data.get("number_of_episodes", 1)
+    tv["runtime"] = (ep_run[0] * num_episodes) if ep_run else None
     tv["tagline"] = data.get("tagline", "")
 
     tv["tmdb_status"] = data.get("status", "Unknown")
@@ -423,9 +425,9 @@ def get_person_full_credits(person_id, page=1):
 
 from functools import lru_cache
 
-@lru_cache(maxsize=1)
-def get_genres():
-    data = _make_request("/genre/movie/list", {"language": "en-US"})
+@lru_cache(maxsize=2)
+def get_genres(media_type="movie"):
+    data = _make_request(f"/genre/{media_type}/list", {"language": "en-US"})
     return data.get("genres", [])
 
 @lru_cache(maxsize=1)
@@ -617,9 +619,9 @@ def advanced_discover(params, page=1, media_type="movie"):
 
         batch = inject_db_status([formatter(m) for m in raw])
         if show_me == "unseen":
-            unseen = [m for m in batch if m["status"] != "watched"]
+            unseen = [m for m in batch if m.get("status") != "watched"]
         elif show_me == "unseen_unwishlisted":
-            unseen = [m for m in batch if m["status"] not in ("watched", "watch_later")]
+            unseen = [m for m in batch if m.get("status") not in ("watched", "watch_later")]
         else:
             unseen = batch
         collected.extend(unseen)

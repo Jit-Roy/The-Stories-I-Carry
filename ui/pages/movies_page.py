@@ -24,7 +24,10 @@ class _MovieSectionWorker(QRunnable):
         except Exception as e:
             print(f"MovieSectionWorker ({self.key}) error: {e}")
             results = []
-        self.signals.finished.emit(self.key, results)
+        try:
+            self.signals.finished.emit(self.key, results)
+        except RuntimeError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -86,9 +89,20 @@ class MoviesPage(QWidget):
 
     def apply_advanced_filters(self, params):
         fetch_params = params.copy()
+        # Also pull the current search-bar text so the Movies filter bar
+        # honours whatever the user typed before clicking Discover.
+        main_win = self.window()
+        if hasattr(main_win, "search_bar"):
+            live_query = main_win.search_bar.text().strip()
+            if live_query:
+                fetch_params["query"] = live_query
         query = fetch_params.get("query")
         title = f"Search Results: '{query}'" if query else "Discover Results"
-        self.on_view_all(title, lambda page: tmdb_api.advanced_discover(fetch_params, page=page, media_type="movie"), fetch_params)
+        self.on_view_all(
+            title,
+            lambda page, _fp=fetch_params: tmdb_api.advanced_discover(_fp, page=page, media_type="movie"),
+            fetch_params
+        )
 
     # ------------------------------------------------------------------
     # Async loading — launch all workers concurrently
@@ -197,8 +211,16 @@ class MoviesPage(QWidget):
         )
 
         def on_trending_toggled(opt):
-            new_data = fetch_trending(1)
-            self.trending_carousel.update_items(new_data)
+            # Fetch off the GUI thread so the UI doesn't freeze during the network call
+            def _fetch():
+                return fetch_trending(1)
+            worker = _MovieSectionWorker("trending_toggle", _fetch)
+            def _done(key, data):
+                if data:
+                    self.trending_carousel.update_items(data)
+            worker.signals.finished.connect(_done)
+            from PySide6.QtCore import QThreadPool
+            QThreadPool.globalInstance().start(worker)
 
         self.trending_toggle.toggled.connect(on_trending_toggled)
         vbox.addWidget(self.trending_carousel)

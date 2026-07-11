@@ -119,7 +119,10 @@ class _DetailWorker(QRunnable):
         except Exception as e:
             print(f"DetailWorker error: {e}")
             details = None
-        self.signals.finished.emit(details)
+        try:
+            self.signals.finished.emit(details)
+        except RuntimeError:
+            pass
 
 class AnimatedDownloadButton(QPushButton):
     def __init__(self, parent=None):
@@ -499,7 +502,11 @@ class MovieDetailPage(QWidget):
             return
             
         tmdb_id = self.movie_data.get("id")
-        manager = DownloadManager()
+        # Always use self.download_manager — NOT a new DownloadManager() instance,
+        # which would be disconnected from the progress/status signals.
+        manager = self.download_manager
+        if not manager:
+            return
         
         # Check current status
         dl_info = manager.active_downloads.get(tmdb_id)
@@ -732,15 +739,17 @@ class MovieDetailPage(QWidget):
 
         similar = details.get("similar", [])
         if similar:
-            tmdb_api.inject_db_status(similar)
-            def handle_view_all():
-                if self.show_grid_view and self.movie_data:
-                    title = f"Similar to: {self.movie_data.get('title', self.movie_data.get('name', 'Unknown'))}"
-                    m_id = self.movie_data.get("id")
-                    if self.movie_data.get("media_type") == "tv":
-                        self.show_grid_view(title, lambda page=1: tmdb_api.get_similar_tv(m_id, page=page))
+            tmdb_api.inject_db_status(similar)  # re-inject: cached data may be stale
+            _s_id = self.movie_data.get("id")
+            _s_type = self.movie_data.get("media_type")
+            _s_title = self.movie_data.get('title', self.movie_data.get('name', 'Unknown'))
+            def handle_view_all(_sid=_s_id, _stype=_s_type, _stitle=_s_title):
+                if self.show_grid_view:
+                    title = f"Similar to: {_stitle}"
+                    if _stype == "tv":
+                        self.show_grid_view(title, lambda page=1, _id=_sid: tmdb_api.get_similar_tv(_id, page=page))
                     else:
-                        self.show_grid_view(title, lambda page=1: tmdb_api.get_similar_movies(m_id, page=page))
+                        self.show_grid_view(title, lambda page=1, _id=_sid: tmdb_api.get_similar_movies(_id, page=page))
                         
             carousel = HorizontalCarousel(
                 "Similar Movies" if self.movie_data.get("media_type") != "tv" else "Similar Shows",
@@ -753,15 +762,17 @@ class MovieDetailPage(QWidget):
         # --- Recommendations ---
         recommendations = details.get("recommendations", [])
         if recommendations:
-            tmdb_api.inject_db_status(recommendations)
-            def handle_view_all_rec():
-                if self.show_grid_view and self.movie_data:
-                    title = f"Recommendations for: {self.movie_data.get('title', self.movie_data.get('name', 'Unknown'))}"
-                    m_id = self.movie_data.get("id")
-                    if self.movie_data.get("media_type") == "tv":
-                        self.show_grid_view(title, lambda page=1: tmdb_api.get_recommended_tv(m_id, page=page))
+            tmdb_api.inject_db_status(recommendations)  # re-inject: cached data may be stale
+            _r_id = self.movie_data.get("id")
+            _r_type = self.movie_data.get("media_type")
+            _r_title = self.movie_data.get('title', self.movie_data.get('name', 'Unknown'))
+            def handle_view_all_rec(_rid=_r_id, _rtype=_r_type, _rtitle=_r_title):
+                if self.show_grid_view:
+                    title = f"Recommendations for: {_rtitle}"
+                    if _rtype == "tv":
+                        self.show_grid_view(title, lambda page=1, _id=_rid: tmdb_api.get_recommended_tv(_id, page=page))
                     else:
-                        self.show_grid_view(title, lambda page=1: tmdb_api.get_recommended_movies(m_id, page=page))
+                        self.show_grid_view(title, lambda page=1, _id=_rid: tmdb_api.get_recommended_movies(_id, page=page))
                         
             carousel = HorizontalCarousel(
                 "Recommendations",

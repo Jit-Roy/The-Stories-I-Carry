@@ -33,7 +33,7 @@ class WishlistPage(QWidget):
         self.title_label.setStyleSheet("font-size: 24px; font-weight: bold; color: white; margin-left: 10px;")
         
         self.type_toggle = SegmentedToggle("Movies", "TV Series")
-        self.type_toggle.toggled.connect(lambda _: self.load_lists())
+        self.type_toggle.toggled.connect(lambda _: self.set_series_view(None))
         
         header_layout.addWidget(self.back_btn)
         header_layout.addWidget(self.title_label)
@@ -96,7 +96,12 @@ class WishlistPage(QWidget):
                 
         self.pending_items = []
         if self.current_series:
-            for m in series_groups.get(self.current_series, []):
+            series_movies = series_groups.get(self.current_series, [])
+            if not series_movies:
+                # The folder became empty while we were viewing it
+                self.set_series_view(None)
+                return
+            for m in series_movies:
                 self.pending_items.append(("movie", m))
         else:
             for s_name, s_movies in series_groups.items():

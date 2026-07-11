@@ -17,12 +17,14 @@ def init_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS movies (
             id INTEGER PRIMARY KEY,
-            tmdb_id INTEGER UNIQUE,
+            tmdb_id INTEGER,
             title TEXT,
             poster_path TEXT,
             status TEXT, -- "watched" or "watch_later"
             added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            series_name TEXT
+            series_name TEXT,
+            media_type TEXT DEFAULT 'movie',
+            UNIQUE(tmdb_id, media_type)
         )
     ''')
     
@@ -112,8 +114,8 @@ def add_movie(tmdb_id, title, poster_path, status, series_name=None, vote_averag
     except sqlite3.IntegrityError:
         # If movie already exists, just update the status
         cursor.execute('''
-            UPDATE movies SET status = ? WHERE tmdb_id = ?
-        ''', (status, tmdb_id))
+            UPDATE movies SET status = ? WHERE tmdb_id = ? AND media_type = ?
+        ''', (status, tmdb_id, media_type))
         conn.commit()
         success = True
     except Exception as e:
@@ -124,10 +126,10 @@ def add_movie(tmdb_id, title, poster_path, status, series_name=None, vote_averag
         
     return success
 
-def remove_movie(tmdb_id):
+def remove_movie(tmdb_id, media_type="movie"):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute('DELETE FROM movies WHERE tmdb_id = ?', (tmdb_id,))
+    cursor.execute('DELETE FROM movies WHERE tmdb_id = ? AND media_type = ?', (tmdb_id, media_type))
     conn.commit()
     conn.close()
 

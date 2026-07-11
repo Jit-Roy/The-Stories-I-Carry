@@ -257,7 +257,10 @@ class _DiscoverSectionWorker(QRunnable):
         except Exception as e:
             print(f"DiscoverSectionWorker ({self.key}) error: {e}")
             results = []
-        self.signals.finished.emit(self.key, results)
+        try:
+            self.signals.finished.emit(self.key, results)
+        except RuntimeError:
+            pass
 
 
 class DiscoverPage(QWidget):

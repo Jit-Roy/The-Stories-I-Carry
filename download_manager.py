@@ -157,6 +157,7 @@ class DownloadManager(QObject):
     download_finished = Signal(int, bool, str)
     download_started = Signal(int, dict)
     probe_finished = Signal(int, dict, str)
+    download_removed = Signal(int)
 
     def __new__(cls):
         if cls._instance is None:

@@ -65,8 +65,8 @@ class _StatusWorker(QRunnable):
 
         database.add_movie(
             self.movie_data["id"],
-            self.movie_data["title"],
-            self.movie_data["poster_path"],
+            self.movie_data.get("title") or self.movie_data.get("name", "Unknown"),
+            self.movie_data.get("poster_path"),
             self.new_status,
             series_name,
             vote_average,
@@ -124,7 +124,6 @@ class MainWindow(QMainWindow):
         self.analytics_page = AnalyticsPage(self.show_grid_view)
         self.downloads_page = DownloadsPage()
         self.settings_page = SettingsPage()
-        
         self.settings_page.api_key_changed.connect(self._on_api_key_changed)
 
         self.current_media_type = "movie"
@@ -171,6 +170,12 @@ class MainWindow(QMainWindow):
         self.analytics_dirty = False
         
         ThemeManager.apply_theme_to_app()
+
+    def _on_api_key_changed(self):
+        # Refresh grid pages when the API key is updated
+        self.discover_page.load_discover_content()
+        self.movies_page.load_content()
+        self.tv_page.load_content()
 
     def setup_left_sidebar(self):
         self.left_sidebar = QWidget()
@@ -690,7 +695,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def change_status(self, movie_data, new_status):
         if new_status == "remove":
-            database.remove_movie(movie_data["id"])
+            database.remove_movie(movie_data["id"], movie_data.get("media_type", "movie"))
             movie_data["status"] = None
             tmdb_api.invalidate_db_cache()
             self._post_status_update(movie_data, new_status)
@@ -713,8 +718,8 @@ class MainWindow(QMainWindow):
             # Synchronous DB write (very fast, local SQLite)
             database.add_movie(
                 movie_data["id"],
-                movie_data["title"],
-                movie_data["poster_path"],
+                movie_data.get("title") or movie_data.get("name", "Unknown"),
+                movie_data.get("poster_path"),
                 new_status,
                 cached_details.get("series_name"),
                 cached_details.get("vote_average") or movie_data.get("vote_average"),

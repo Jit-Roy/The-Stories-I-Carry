@@ -204,8 +204,6 @@ class DownloadItemWidget(QFrame):
     def delete_item(self):
         manager = DownloadManager()
         manager.remove_download(self.tmdb_id)
-        self.hide()
-        self.deleteLater()
 
     def toggle_pause(self):
         manager = DownloadManager()
@@ -414,6 +412,7 @@ class DownloadsPage(QWidget):
         self.manager.download_started.connect(self.on_download_started)
         self.manager.progress_updated.connect(self.on_progress_updated)
         self.manager.status_updated.connect(self.on_status_updated)
+        self.manager.download_removed.connect(self.on_download_removed)
         
     def on_download_started(self, tmdb_id, dl_info):
         self.empty_label.hide()
@@ -435,3 +434,11 @@ class DownloadsPage(QWidget):
                 self.items[tmdb_id].update_status(status)
             except RuntimeError:
                 del self.items[tmdb_id]
+
+    def on_download_removed(self, tmdb_id):
+        if tmdb_id in self.items:
+            item = self.items.pop(tmdb_id)
+            item.hide()
+            item.deleteLater()
+            if not self.items:
+                self.empty_label.show()
