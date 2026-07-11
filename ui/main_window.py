@@ -320,6 +320,12 @@ class MainWindow(QMainWindow):
             self.logo_icon.setPixmap(QIcon("assets/icons/main_logo.svg").pixmap(36, 36))
         self.setWindowIcon(QIcon("assets/icons/app_icon.ico"))
 
+        if hasattr(self, 'search_glow'):
+            from ui.theme_manager import ThemeManager
+            r_str, g_str, b_str = ThemeManager.THEMES[ThemeManager.get_current_theme_name()]["rgba_base"].split(",")
+            from PySide6.QtGui import QColor
+            self.search_glow.setColor(QColor(int(r_str), int(g_str), int(b_str), 70))
+
     def switch_page(self, index, active_btn):
         old_index = self.main_stack.currentIndex()
         if hasattr(self, "search_bar"):
@@ -539,7 +545,9 @@ class MainWindow(QMainWindow):
         # ── Glow effect + animation ────────────────────────────────────────────
         self.search_glow = QGraphicsDropShadowEffect()
         self.search_glow.setBlurRadius(0)
-        self.search_glow.setColor(QColor(26, 224, 161, 70))
+        from ui.theme_manager import ThemeManager
+        r_str, g_str, b_str = ThemeManager.THEMES[ThemeManager.get_current_theme_name()]["rgba_base"].split(",")
+        self.search_glow.setColor(QColor(int(r_str), int(g_str), int(b_str), 70))
         self.search_glow.setOffset(0, 0)
         self.search_wrapper.setGraphicsEffect(self.search_glow)
 
