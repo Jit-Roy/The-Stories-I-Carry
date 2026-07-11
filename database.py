@@ -167,14 +167,14 @@ def get_movies(status=None):
         for m in movies
     ]
 
-def set_series(tmdb_id, series_name):
+def set_series(tmdb_id, series_name, media_type="movie"):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     # convert empty strings to None
     series_name = series_name.strip() if series_name and series_name.strip() else None
     cursor.execute('''
-        UPDATE movies SET series_name = ? WHERE tmdb_id = ?
-    ''', (series_name, tmdb_id))
+        UPDATE movies SET series_name = ? WHERE tmdb_id = ? AND media_type = ?
+    ''', (series_name, tmdb_id, media_type))
     conn.commit()
     conn.close()
 

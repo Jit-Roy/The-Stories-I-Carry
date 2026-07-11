@@ -223,10 +223,17 @@ class DownloadManager(QObject):
                 "headers": v.get("headers")
             }
         try:
-            with open(self.history_file, "w", encoding="utf-8") as f:
+            tmp_file = self.history_file + ".tmp"
+            with open(tmp_file, "w", encoding="utf-8") as f:
                 json.dump(history, f, indent=4)
+            os.replace(tmp_file, self.history_file)
         except Exception as e:
             print(f"Error saving download history: {e}")
+            if 'tmp_file' in locals() and os.path.exists(tmp_file):
+                try:
+                    os.remove(tmp_file)
+                except OSError:
+                    pass
 
     def start_probe(self, movie_data):
         tmdb_id = movie_data["id"]
