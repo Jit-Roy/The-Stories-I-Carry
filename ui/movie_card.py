@@ -79,6 +79,9 @@ class ImageLoader(QRunnable):
     def __init__(self, url: str, target_size: tuple = None):
         super().__init__()
         self.url = url
+        if self.url and self.url.startswith("/"):
+            self.url = f"https://image.tmdb.org/t/p/w500{self.url}"
+            
         self.target_size = target_size
         self.signals = ImageLoaderSignals()
         with _loader_lock:

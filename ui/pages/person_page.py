@@ -140,7 +140,8 @@ class PersonPage(QWidget):
         
         if data.get("profile_path"):
             # Fetch image asynchronously to prevent UI freezing
-            loader = ImageLoader(data["profile_path"], target_size=(200, 300))
+            url = f"https://image.tmdb.org/t/p/w300{data['profile_path']}"
+            loader = ImageLoader(url, target_size=(200, 300))
             def on_img(img, label=img_label):
                 if img:
                     pixmap = QPixmap(img)

@@ -1,7 +1,24 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QScrollArea
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer, QRunnable, QThreadPool, Signal, QObject
 from ui.movie_card import MovieCard
 from ui.components import FlowLayout, ResizableScrollArea
+
+class _GridFetchWorkerSignals(QObject):
+    finished = Signal(list)
+
+class _GridFetchWorker(QRunnable):
+    def __init__(self, fetch_func, current_page):
+        super().__init__()
+        self.fetch_func = fetch_func
+        self.current_page = current_page
+        self.signals = _GridFetchWorkerSignals()
+
+    def run(self):
+        try:
+            movies = self.fetch_func(self.current_page)
+            self.signals.finished.emit(movies if movies else [])
+        except Exception:
+            self.signals.finished.emit([])
 
 class GridPage(QWidget):
     def __init__(self, go_back_callback, change_status_callback, on_click_callback):
@@ -220,12 +237,35 @@ class GridPage(QWidget):
         
     def load_next_page(self):
         if not self.fetch_func: return
-        movies = self.fetch_func(self.current_page)
+        self.load_more_btn.setText("Loading...")
+        self.load_more_btn.setEnabled(False)
+        
+        worker = _GridFetchWorker(self.fetch_func, self.current_page)
+        worker.signals.finished.connect(self._on_page_loaded)
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_page_loaded(self, movies):
+        self.load_more_btn.setText("Load More")
+        self.load_more_btn.setEnabled(True)
+        
         if not movies:
             self.load_more_btn.hide()
             return
             
-        for movie in movies:
+        self._last_batch_size = len(movies)
+        self._pending_grid_items = movies
+        self._render_chunk()
+        
+    def _render_chunk(self):
+        if not hasattr(self, '_pending_grid_items') or not self._pending_grid_items:
+            self.current_page += 1
+            self.flow_layout.reflow(self.scroll.viewport().width())
+            return
+            
+        chunk = self._pending_grid_items[:4]
+        self._pending_grid_items = self._pending_grid_items[4:]
+        
+        for movie in chunk:
             movie_id = movie.get("id")
             if movie_id in getattr(self, "seen_movie_ids", set()):
                 continue
@@ -237,11 +277,13 @@ class GridPage(QWidget):
             else:
                 self.flow_layout.add_widget(MovieCard(movie, self.change_status, self.on_click))
             
-        self.current_page += 1
-        self.flow_layout.reflow(self.scroll.viewport().width())
-        
-        if len(movies) < 20:
-            self.load_more_btn.hide()
+        if self._pending_grid_items:
+            QTimer.singleShot(5, self._render_chunk)
+        else:
+            self.current_page += 1
+            self.flow_layout.reflow(self.scroll.viewport().width())
+            if getattr(self, '_last_batch_size', 20) < 20:
+                self.load_more_btn.hide()
 
     def refresh_status(self):
         # Update UI of all MovieCards in the grid to reflect fresh DB status

@@ -46,8 +46,6 @@ POPULAR_KEYWORDS = [
 ]
 
 class CategoryCard(QWidget):
-    _color_index = 0
-    
     def __init__(self, data, on_click):
         super().__init__()
         self.data = data
@@ -63,8 +61,9 @@ class CategoryCard(QWidget):
         self.img.setFixedSize(160, 240)
         
         colors = ["#FF5A5F", "#087E8B", "#3C3B3D", "#F5D491", "#C43302"]
-        c = colors[CategoryCard._color_index % len(colors)]
-        CategoryCard._color_index += 1
+        # Use a stable injected index to prevent timer interleaving from messing up sequences
+        idx = data.get("_color_index", hash(data.get("title", "")) % len(colors))
+        c = colors[idx % len(colors)]
         
         self.img.setStyleSheet(f"background-color: {c}; border-radius: 12px;")
         
@@ -302,6 +301,10 @@ class DiscoverPage(QWidget):
         def fetch_all(page=1):
             return data if page == 1 else []
             
+        # Inject stable color index to prevent async rendering clashes
+        for i, item in enumerate(data):
+            item["_color_index"] = i
+            
         car = HorizontalCarousel(
             title,
             data[:10],
@@ -312,7 +315,6 @@ class DiscoverPage(QWidget):
 
     def load_discover_content(self):
         self.clear_layout()
-        CategoryCard._color_index = 0  # reset so colours are always consistent
         
         # 1. Studios
         studios_car = self._build_hardcoded_carousel("Iconic Studios", POPULAR_STUDIOS, lambda d: CategoryCard(d, self.on_category_clicked))
