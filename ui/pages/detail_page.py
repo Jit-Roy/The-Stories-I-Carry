@@ -743,7 +743,7 @@ class MovieDetailPage(QWidget):
             _s_id = self.movie_data.get("id")
             _s_type = self.movie_data.get("media_type")
             _s_title = self.movie_data.get('title', self.movie_data.get('name', 'Unknown'))
-            def handle_view_all(_sid=_s_id, _stype=_s_type, _stitle=_s_title):
+            def handle_view_all(*args, _sid=_s_id, _stype=_s_type, _stitle=_s_title):
                 if self.show_grid_view:
                     title = f"Similar to: {_stitle}"
                     if _stype == "tv":
@@ -766,7 +766,7 @@ class MovieDetailPage(QWidget):
             _r_id = self.movie_data.get("id")
             _r_type = self.movie_data.get("media_type")
             _r_title = self.movie_data.get('title', self.movie_data.get('name', 'Unknown'))
-            def handle_view_all_rec(_rid=_r_id, _rtype=_r_type, _rtitle=_r_title):
+            def handle_view_all_rec(*args, _rid=_r_id, _rtype=_r_type, _rtitle=_r_title):
                 if self.show_grid_view:
                     title = f"Recommendations for: {_rtitle}"
                     if _rtype == "tv":
