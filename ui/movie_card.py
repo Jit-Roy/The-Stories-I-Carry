@@ -21,6 +21,17 @@ ACTIVE_LOADERS = set()
 # Global session for connection pooling when fetching images
 _image_session = requests.Session()
 
+class _GlobalCleanupSignals(QObject):
+    cleanup = Signal(object)
+
+_cleanup_signals = _GlobalCleanupSignals()
+
+def _do_cleanup(loader):
+    with _loader_lock:
+        ACTIVE_LOADERS.discard(loader)
+
+_cleanup_signals.cleanup.connect(_do_cleanup)
+
 
 def _url_to_cache_path(url: str) -> str:
     key = hashlib.md5(url.encode()).hexdigest()
@@ -48,7 +59,7 @@ def _get_cached_image(url: str) -> bytes | None:
             data = _mem_cache.pop(url)
             _mem_cache[url] = data
             return data
-            
+
     path = _url_to_cache_path(url)
     if os.path.exists(path):
         try:
@@ -72,7 +83,7 @@ def _save_to_disk(url: str, data: bytes):
 
 class ImageLoaderSignals(QObject):
     finished = Signal(bytes)
-    finished_img = Signal(object)  # Emits QImage if target_size is provided
+    finished_img = Signal(QImage)  # Must be QImage to ensure safe cross-thread copying
 
 
 class ImageLoader(QRunnable):
@@ -81,7 +92,7 @@ class ImageLoader(QRunnable):
         self.url = url
         if self.url and self.url.startswith("/"):
             self.url = f"https://image.tmdb.org/t/p/w500{self.url}"
-            
+
         self.target_size = target_size
         self.signals = ImageLoaderSignals()
         with _loader_lock:
@@ -92,8 +103,8 @@ class ImageLoader(QRunnable):
 
     def run(self):
         try:
-            cached = _get_cached_image(self.url)
             data = None
+            cached = _get_cached_image(self.url)
             if cached is not None:
                 data = cached
             else:
@@ -103,27 +114,33 @@ class ImageLoader(QRunnable):
                     data = r.content
                     _mem_put(self.url, data)
                     _save_to_disk(self.url, data)
-                    
+
             if not data:
                 try:
                     self.signals.finished.emit(b"")
                     self.signals.finished_img.emit(None)
-                except RuntimeError: pass
+                except RuntimeError:
+                    pass
                 return
-                
+
             if self.target_size:
                 from PySide6.QtGui import QImage
                 from PySide6.QtCore import Qt
                 img = QImage()
                 if img.loadFromData(data):
-                    scaled_img = img.scaled(self.target_size[0], self.target_size[1], Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                    scaled_img = img.scaled(
+                        self.target_size[0], self.target_size[1],
+                        Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
+                    )
                     try:
                         self.signals.finished_img.emit(scaled_img)
-                    except RuntimeError: pass
+                    except RuntimeError:
+                        pass
                 else:
                     try:
                         self.signals.finished_img.emit(None)
-                    except RuntimeError: pass
+                    except RuntimeError:
+                        pass
             else:
                 try:
                     self.signals.finished.emit(data)
@@ -137,8 +154,10 @@ class ImageLoader(QRunnable):
             except RuntimeError:
                 pass
         finally:
-            with _loader_lock:
-                ACTIVE_LOADERS.discard(self)
+            try:
+                _cleanup_signals.cleanup.emit(self)
+            except RuntimeError:
+                pass
 
 
 class RoundedImage(QLabel):
@@ -198,10 +217,11 @@ class MovieCard(QWidget):
         # Overlay Buttons (Hidden by default)
         self.overlay = QWidget(self.poster_container)
         self.overlay.setFixedSize(160, 240)
-        # Subtle gradient from top and bottom to make white icons pop
         self.overlay.setStyleSheet("""
             QWidget {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0,0,0,0.6), stop:0.25 rgba(0,0,0,0), stop:0.75 rgba(0,0,0,0), stop:1 rgba(0,0,0,0.6));
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgba(0,0,0,0.6), stop:0.25 rgba(0,0,0,0),
+                    stop:0.75 rgba(0,0,0,0), stop:1 rgba(0,0,0,0.6));
                 border-radius: 12px;
             }
         """)
@@ -259,7 +279,7 @@ class MovieCard(QWidget):
 
         # Info
         rating = self.movie_data.get("vote_average", "N/A")
-        
+
         raw_date = self.movie_data.get("release_date", "")
         if raw_date and len(raw_date) >= 10:
             try:
@@ -269,22 +289,23 @@ class MovieCard(QWidget):
                 date = raw_date[:4]
         else:
             date = raw_date[:4] if raw_date else ""
-            
+
         info_text = f"⭐ {rating}   {date}"
         self.info_label = QLabel(info_text)
         self.info_label.setObjectName("movieInfo")
         layout.addWidget(self.info_label)
 
         self.setLayout(layout)
-
         self.load_poster()
 
     def on_action_click(self, target_status):
         current_status = self.movie_data.get("status")
         new_status = "remove" if current_status == target_status else target_status
+        # Optimistically update local status so update_buttons() reflects immediately
+        self.movie_data["status"] = None if new_status == "remove" else new_status
+        self.update_buttons()
         if self.on_status_change:
             self.on_status_change(self.movie_data, new_status)
-        self.update_buttons()
 
     def update_buttons(self):
         from ui.theme_manager import ThemeManager
@@ -325,10 +346,20 @@ class MovieCard(QWidget):
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        self.overlay.hide()
+        # Only hide overlay if mouse truly left the card bounds
+        # (not just moved to a child widget like a button inside the overlay)
+        pos = self.mapFromGlobal(self.cursor().pos())
+        if not self.rect().contains(pos):
+            self.overlay.hide()
         super().leaveEvent(event)
 
     def mousePressEvent(self, event):
+        # Prevent clicks on the buttons from triggering the detail page
+        clicked_widget = self.childAt(event.pos())
+        if clicked_widget in (self.btn_later, self.btn_watched):
+            super().mousePressEvent(event)
+            return
+            
         if self.on_click:
             self.on_click(self.movie_data)
         super().mousePressEvent(event)
@@ -337,23 +368,21 @@ class MovieCard(QWidget):
         url = self.movie_data.get("poster_path")
         if not url:
             return
-
         dpr = self.devicePixelRatioF()
         target_w = int(160 * dpr)
         target_h = int(240 * dpr)
-
         loader = ImageLoader(url, target_size=(target_w, target_h))
         loader.signals.finished_img.connect(self.on_scaled_image_loaded)
         QThreadPool.globalInstance().start(loader)
 
     def on_scaled_image_loaded(self, img):
         if img:
-            pixmap = QPixmap(img)
+            pixmap = QPixmap.fromImage(img)
             pixmap.setDevicePixelRatio(self.devicePixelRatioF())
             self.poster_label.setPixmap(pixmap)
         else:
             self._retry_poster()
-            
+
     def _apply_image(self, image_data: bytes):
         if not image_data:
             return
@@ -362,7 +391,9 @@ class MovieCard(QWidget):
             dpr = self.devicePixelRatioF()
             target_w = int(160 * dpr)
             target_h = int(240 * dpr)
-            pixmap = QPixmap(img).scaled(target_w, target_h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+            pixmap = QPixmap.fromImage(img).scaled(
+                target_w, target_h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
+            )
             pixmap.setDevicePixelRatio(dpr)
             self.poster_label.setPixmap(pixmap)
 
@@ -370,7 +401,7 @@ class MovieCard(QWidget):
         self._apply_image(image_data)
         if not image_data:
             self._retry_poster()
-            
+
     def _retry_poster(self):
         if not hasattr(self, "image_retries"):
             self.image_retries = 3
@@ -421,7 +452,7 @@ class SeriesFolderCard(QFrame):
         from ui.theme_manager import ThemeManager
         primary = ThemeManager.get_color("primary")
         rgba_base = ThemeManager.THEMES[ThemeManager.get_current_theme_name()]["rgba_base"]
-        
+
         count_label.setStyleSheet(f"color: {primary}; font-weight: bold; font-size: 13px; border: none; background: transparent;")
 
         open_btn = QPushButton("View Collection")
@@ -443,7 +474,9 @@ class SeriesFolderCard(QFrame):
         self.hover_overlay.setFixedSize(160, 240)
         self.hover_overlay.setStyleSheet("""
             QWidget {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0,0,0,0.6), stop:0.25 rgba(0,0,0,0), stop:0.75 rgba(0,0,0,0), stop:1 rgba(0,0,0,0.6));
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgba(0,0,0,0.6), stop:0.25 rgba(0,0,0,0),
+                    stop:0.75 rgba(0,0,0,0), stop:1 rgba(0,0,0,0.6));
                 border-radius: 12px;
             }
         """)
@@ -500,6 +533,8 @@ class SeriesFolderCard(QFrame):
                 dpr = self.devicePixelRatioF()
                 target_w = int(160 * dpr)
                 target_h = int(240 * dpr)
-                pixmap = QPixmap(img).scaled(target_w, target_h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                pixmap = QPixmap.fromImage(img).scaled(
+                    target_w, target_h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
+                )
                 pixmap.setDevicePixelRatio(dpr)
                 self.poster_label.setPixmap(pixmap)

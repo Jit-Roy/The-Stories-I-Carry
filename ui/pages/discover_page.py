@@ -115,7 +115,7 @@ class CategoryCard(QWidget):
         if not img: return
         from PySide6.QtGui import QPixmap
         dpr = self.devicePixelRatioF()
-        pixmap = QPixmap(img)
+        pixmap = QPixmap.fromImage(img)
         pixmap.setDevicePixelRatio(dpr)
         self.img.setPixmap(pixmap)
             
@@ -126,7 +126,7 @@ class CategoryCard(QWidget):
         if img.loadFromData(image_data):
             dpr = self.devicePixelRatioF()
             # Scale logo down to fit inside a 120x120 box
-            logo_pix = QPixmap(img).scaled(int(120 * dpr), int(120 * dpr), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            logo_pix = QPixmap.fromImage(img).scaled(int(120 * dpr), int(120 * dpr), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             logo_pix.setDevicePixelRatio(dpr)
             
             # Create a 160x240 transparent image
@@ -209,7 +209,7 @@ class PersonCard(QWidget):
         if not img: return
         from PySide6.QtGui import QPixmap
         dpr = self.devicePixelRatioF()
-        pixmap = QPixmap(img)
+        pixmap = QPixmap.fromImage(img)
         pixmap.setDevicePixelRatio(dpr)
         self.img.setPixmap(pixmap)
 

@@ -688,10 +688,10 @@ class MainWindow(QMainWindow):
             self._update_search_visibility(t_stack)
                 
             if t_stack.currentIndex() == 0:
-                if index == 1 and getattr(self, "collection_dirty", False):
+                if index == 3 and getattr(self, "collection_dirty", False):
                     self.collection_page.load_lists()
                     self.collection_dirty = False
-                elif index == 2 and getattr(self, "wishlist_dirty", False):
+                elif index == 4 and getattr(self, "wishlist_dirty", False):
                     self.wishlist_page.load_lists()
                     self.wishlist_dirty = False
                 elif index == 5 and getattr(self, "analytics_dirty", False):
@@ -780,10 +780,10 @@ class MainWindow(QMainWindow):
         t_stack = self.main_stack.currentWidget()
         if isinstance(t_stack, TabStack) and t_stack.currentIndex() == 0:
             current_idx = t_stack.tab_index
-            if current_idx == 1:
+            if current_idx == 3:
                 self.collection_page.load_lists()
                 self.collection_dirty = False
-            elif current_idx == 2:
+            elif current_idx == 4:
                 self.wishlist_page.load_lists()
                 self.wishlist_dirty = False
             elif current_idx == 5:

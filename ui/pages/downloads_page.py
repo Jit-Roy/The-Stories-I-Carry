@@ -279,7 +279,7 @@ class DownloadItemWidget(QFrame):
         if not img: return
         from PySide6.QtGui import QPixmap
         dpr = self.devicePixelRatioF()
-        pixmap = QPixmap(img)
+        pixmap = QPixmap.fromImage(img)
         pixmap.setDevicePixelRatio(dpr)
         self.poster_label.setPixmap(pixmap)
 

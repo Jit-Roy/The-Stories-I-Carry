@@ -10,6 +10,7 @@ import tmdb_api
 from ui.movie_card import RoundedImage, ImageLoader
 from ui.chrome_sniffer import ChromeSnifferDialog
 from download_manager import DownloadManager
+from ui.theme_manager import ThemeManager
 
 SEASON_CACHE = {}
 
@@ -260,18 +261,18 @@ class EpisodeCard(QFrame):
             return
             
         url = f"https://image.tmdb.org/t/p/w300{path}"
-        
-        target_size = (self.img_label.width(), self.img_label.height())
+        dpr = self.devicePixelRatioF()
+        target_size = (int(self.img_label.width() * dpr), int(self.img_label.height() * dpr))
         loader = ImageLoader(url, target_size=target_size)
         loader.signals.finished_img.connect(self.on_image_loaded)
         QThreadPool.globalInstance().start(loader)
 
     def on_image_loaded(self, img):
-        if not img:
-            return
-            
-        from PySide6.QtGui import QPixmap
-        self.img_label.setPixmap(QPixmap(img))
+        if img:
+            from PySide6.QtGui import QPixmap
+            pixmap = QPixmap.fromImage(img)
+            pixmap.setDevicePixelRatio(self.devicePixelRatioF())
+            self.img_label.setPixmap(pixmap)
 
     def _on_play(self):
         ep_num = self.episode.get("episode_number", 1)

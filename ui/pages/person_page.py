@@ -87,15 +87,14 @@ class PersonPage(QWidget):
         self.carousel = None
 
     def load_person(self, person_id):
-        # Clear existing
-        if self.profile_container:
-            self.content_layout.removeWidget(self.profile_container)
-            self.profile_container.deleteLater()
-            self.profile_container = None
-        if self.carousel:
-            self.content_layout.removeWidget(self.carousel)
-            self.carousel.deleteLater()
-            self.carousel = None
+        # Clear existing widgets AND spacer items (keep loading_label at index 0)
+        while self.content_layout.count() > 1:
+            item = self.content_layout.takeAt(1)
+            if item.widget():
+                item.widget().deleteLater()
+        
+        self.profile_container = None
+        self.carousel = None
             
         self.loading_label.show()
         
@@ -141,12 +140,16 @@ class PersonPage(QWidget):
         if data.get("profile_path"):
             # Fetch image asynchronously to prevent UI freezing
             url = f"https://image.tmdb.org/t/p/w300{data['profile_path']}"
-            loader = ImageLoader(url, target_size=(200, 300))
+            dpr = self.devicePixelRatioF()
+            loader = ImageLoader(url, target_size=(int(200 * dpr), int(300 * dpr)))
             def on_img(img, label=img_label):
                 if img:
-                    pixmap = QPixmap(img)
-                    pixmap.setDevicePixelRatio(self.devicePixelRatioF())
-                    label.setPixmap(pixmap)
+                    try:
+                        pixmap = QPixmap.fromImage(img)
+                        pixmap.setDevicePixelRatio(self.devicePixelRatioF())
+                        label.setPixmap(pixmap)
+                    except Exception as e:
+                        print(f"Exception setting pixmap: {e}")
                 else:
                     label.setText("No Image")
             loader.signals.finished_img.connect(on_img)

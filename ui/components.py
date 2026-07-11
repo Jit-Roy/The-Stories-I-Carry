@@ -222,9 +222,11 @@ class HeroBanner(QWidget):
     def on_action_click(self):
         status = self.movie.get("status")
         new_status = "remove" if status == "watch_later" else "watch_later"
+        # Optimistically update local status so update_buttons() reflects immediately
+        self.movie["status"] = None if new_status == "remove" else new_status
+        self.update_buttons()
         if self.on_status_change:
             self.on_status_change(self.movie, new_status)
-        self.update_buttons()
 
     def update_buttons(self):
         from ui.theme_manager import ThemeManager
@@ -285,7 +287,7 @@ class HeroBanner(QWidget):
         if image_data:
             img = QImage()
             if img.loadFromData(image_data):
-                self._bg_pixmap = QPixmap(img)
+                self._bg_pixmap = QPixmap.fromImage(img)
                 self.update()
         else:
             if not hasattr(self, "image_retries"):

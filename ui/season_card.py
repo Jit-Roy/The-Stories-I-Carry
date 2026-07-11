@@ -60,7 +60,8 @@ class SeasonCard(QWidget):
         url = f"https://image.tmdb.org/t/p/w500{path}"
         
         from PySide6.QtCore import QThreadPool
-        target_size = (self.poster_lbl.width(), self.poster_lbl.height())
+        dpr = self.devicePixelRatioF()
+        target_size = (int(self.poster_lbl.width() * dpr), int(self.poster_lbl.height() * dpr))
         self.loader = ImageLoader(url, target_size=target_size)
         self.loader.signals.finished_img.connect(self.on_poster_loaded)
         QThreadPool.globalInstance().start(self.loader)
@@ -71,7 +72,9 @@ class SeasonCard(QWidget):
             return
             
         from PySide6.QtGui import QPixmap
-        self.poster_lbl.setPixmap(QPixmap(img))
+        pixmap = QPixmap.fromImage(img)
+        pixmap.setDevicePixelRatio(self.devicePixelRatioF())
+        self.poster_lbl.setPixmap(pixmap)
         
     def enterEvent(self, event):
         self.hover_overlay.show()

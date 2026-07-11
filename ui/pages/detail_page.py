@@ -82,7 +82,7 @@ class ProfileCard(QWidget):
         if img:
             from PySide6.QtGui import QPixmap
             dpr = self.devicePixelRatioF()
-            pixmap = QPixmap(img)
+            pixmap = QPixmap.fromImage(img)
             pixmap.setDevicePixelRatio(dpr)
             self.img_label.setPixmap(pixmap)
 
@@ -592,28 +592,33 @@ class MovieDetailPage(QWidget):
         # Fast-path cache check removed to prevent synchronous disk reads.
         # ImageLoader will handle both memory/disk cache and network asynchronously.
 
+        # ── Start image loaders ───────────────────────────────────────
+        def _start_images():
+            if movie_data.get("backdrop_path"):
+                bd_loader = ImageLoader(movie_data["backdrop_path"])
+                bd_loader.signals.finished.connect(self.on_backdrop_loaded)
+                QThreadPool.globalInstance().start(bd_loader)
+
+            if movie_data.get("poster_path"):
+                dpr = self.devicePixelRatioF()
+                poster_loader = ImageLoader(movie_data["poster_path"], target_size=(int(160 * dpr), int(240 * dpr)))
+                poster_loader.signals.finished_img.connect(self.on_poster_loaded)
+                QThreadPool.globalInstance().start(poster_loader)
+
         # ── Smart Cache Check ─────────────────────────────────────────
         media_type = movie_data.get("media_type", "movie")
         cache_key = (movie_id, media_type)
         if cache_key in DETAILS_CACHE:
+            _start_images()
             self._on_details_loaded(DETAILS_CACHE[cache_key])
             return
+
+        _start_images()
 
         # ── Kick off the details worker (non-blocking) ────────────────
         worker = _DetailWorker(movie_id, media_type)
         worker.signals.finished.connect(self._on_details_loaded)
         QThreadPool.globalInstance().start(worker)
-
-        # ── Start image loaders ───────────────────────────────────────
-        if movie_data.get("backdrop_path"):
-            bd_loader = ImageLoader(movie_data["backdrop_path"])
-            bd_loader.signals.finished.connect(self.on_backdrop_loaded)
-            QThreadPool.globalInstance().start(bd_loader)
-
-        if movie_data.get("poster_path"):
-            poster_loader = ImageLoader(movie_data["poster_path"], target_size=(160, 240))
-            poster_loader.signals.finished_img.connect(self.on_poster_loaded)
-            QThreadPool.globalInstance().start(poster_loader)
 
     # ------------------------------------------------------------------
     # Slot: called on main thread when the worker finishes
@@ -957,4 +962,7 @@ class MovieDetailPage(QWidget):
     def on_poster_loaded(self, img):
         if img:
             from PySide6.QtGui import QPixmap
-            self.poster_label.setPixmap(QPixmap(img))
+            try:
+                self.poster_label.setPixmap(QPixmap.fromImage(img))
+            except Exception as e:
+                print(f"Exception setting poster pixmap: {e}")
