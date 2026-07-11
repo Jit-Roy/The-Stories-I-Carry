@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                                QPushButton, QScrollArea, QFrame, QSizePolicy)
 from PySide6.QtCore import Qt, QRunnable, QThreadPool, Signal, QObject
-from PySide6.QtGui import QPixmap, QIcon
+from PySide6.QtGui import QPixmap, QIcon, QImage
 import requests
 import tmdb_api
 from ui.movie_card import RoundedImage, ImageLoader, MovieCard
@@ -138,22 +138,34 @@ class PersonPage(QWidget):
         img_label.setAlignment(Qt.AlignCenter)
         
         if data.get("profile_path"):
-            # Fetch image asynchronously to prevent UI freezing
-            url = f"https://image.tmdb.org/t/p/w300{data['profile_path']}"
+            url = data["profile_path"]
             dpr = self.devicePixelRatioF()
-            loader = ImageLoader(url, target_size=(int(200 * dpr), int(300 * dpr)))
-            def on_img(img, label=img_label):
-                if img:
-                    try:
-                        pixmap = QPixmap.fromImage(img)
-                        pixmap.setDevicePixelRatio(self.devicePixelRatioF())
-                        label.setPixmap(pixmap)
-                    except Exception as e:
-                        print(f"Exception setting pixmap: {e}")
+            target_size = (int(200 * dpr), int(300 * dpr))
+            
+            cached_bytes = ImageLoader.check_mem_cache(url)
+            if cached_bytes:
+                img = QImage()
+                if img.loadFromData(cached_bytes):
+                    scaled_img = img.scaled(target_size[0], target_size[1], Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                    pixmap = QPixmap.fromImage(scaled_img)
+                    pixmap.setDevicePixelRatio(dpr)
+                    img_label.setPixmap(pixmap)
                 else:
-                    label.setText("No Image")
-            loader.signals.finished_img.connect(on_img)
-            QThreadPool.globalInstance().start(loader)
+                    img_label.setText("No Image")
+            else:
+                loader = ImageLoader(url, target_size=target_size)
+                def on_img(img, label=img_label):
+                    if img:
+                        try:
+                            pixmap = QPixmap.fromImage(img)
+                            pixmap.setDevicePixelRatio(self.devicePixelRatioF())
+                            label.setPixmap(pixmap)
+                        except Exception as e:
+                            print(f"Exception setting pixmap: {e}")
+                    else:
+                        label.setText("No Image")
+                loader.signals.finished_img.connect(on_img)
+                QThreadPool.globalInstance().start(loader)
         else:
             img_label.setText("No Image")
             

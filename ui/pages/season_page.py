@@ -263,9 +263,20 @@ class EpisodeCard(QFrame):
         url = f"https://image.tmdb.org/t/p/w300{path}"
         dpr = self.devicePixelRatioF()
         target_size = (int(self.img_label.width() * dpr), int(self.img_label.height() * dpr))
-        loader = ImageLoader(url, target_size=target_size)
-        loader.signals.finished_img.connect(self.on_image_loaded)
-        QThreadPool.globalInstance().start(loader)
+        cached_img = ImageLoader.check_mem_cache(url)
+        
+        if cached_img:
+            from PySide6.QtGui import QImage
+            img = QImage()
+            if img.loadFromData(cached_img):
+                scaled_img = img.scaled(target_size[0], target_size[1], Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                self.on_image_loaded(scaled_img)
+            else:
+                self.on_image_loaded(None)
+        else:
+            loader = ImageLoader(url, target_size=target_size)
+            loader.signals.finished_img.connect(self.on_image_loaded)
+            QThreadPool.globalInstance().start(loader)
 
     def on_image_loaded(self, img):
         if img:

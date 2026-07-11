@@ -405,12 +405,16 @@ class MainWindow(QMainWindow):
         if current_index == 1:
             return t_stack.detail_page.movie_data
         elif current_index == 2:
+            fb = getattr(t_stack.grid_page, "filter_bar", None)
+            fallback_visibility = fb.isVisible() if fb else False
+            show_filter = getattr(t_stack.grid_page, "show_filter_bar", fallback_visibility)
+            
             return {
                 "title": getattr(t_stack.grid_page, "current_title", t_stack.grid_page.title_label.text()),
                 "fetch_func": getattr(t_stack.grid_page, "fetch_func", None),
                 "initial_params": getattr(t_stack.grid_page, "initial_params", getattr(t_stack.grid_page, "current_params", None)),
                 "card_renderer": getattr(t_stack.grid_page, "card_renderer", None),
-                "show_filter_bar": getattr(t_stack.grid_page, "show_filter_bar", t_stack.grid_page.filter_bar.isVisible()),
+                "show_filter_bar": show_filter,
                 "media_type": getattr(t_stack.grid_page, "_grid_media_type", getattr(t_stack.grid_page, "media_type", "movie"))
             }
         elif current_index == 3:
@@ -779,15 +783,16 @@ class MainWindow(QMainWindow):
         
         t_stack = self.main_stack.currentWidget()
         if isinstance(t_stack, TabStack) and t_stack.currentIndex() == 0:
+            from PySide6.QtCore import QTimer
             current_idx = t_stack.tab_index
             if current_idx == 3:
-                self.collection_page.load_lists()
+                QTimer.singleShot(50, self.collection_page.load_lists)
                 self.collection_dirty = False
             elif current_idx == 4:
-                self.wishlist_page.load_lists()
+                QTimer.singleShot(50, self.wishlist_page.load_lists)
                 self.wishlist_dirty = False
             elif current_idx == 5:
-                self.analytics_page.load_data()
+                QTimer.singleShot(50, self.analytics_page.load_data)
                 self.analytics_dirty = False
                 
         for detail_page in getattr(self, 'all_detail_pages', []):

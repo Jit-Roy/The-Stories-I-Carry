@@ -7,7 +7,8 @@ class ThemeManager:
         "Cyberpunk Pink": {"primary": "#FF2A6D", "secondary": "#D1225B", "complementary": "#00D2FE", "rgba_base": "255, 42, 109"},
         "Ocean Blue": {"primary": "#00D2FF", "secondary": "#009EE0", "complementary": "#FFD701", "rgba_base": "0, 210, 255"},
         "Gold": {"primary": "#FFD700", "secondary": "#E6C200", "complementary": "#B53472", "rgba_base": "255, 215, 0"},
-        "Amethyst Purple": {"primary": "#B53471", "secondary": "#833471", "complementary": "#1AE0A2", "rgba_base": "181, 52, 113"}
+        "Amethyst Purple": {"primary": "#B53471", "secondary": "#833471", "complementary": "#1AE0A2", "rgba_base": "181, 52, 113"},
+        "Sunset Orange": {"primary": "#FF5E3A", "secondary": "#FF441A", "complementary": "#00B4D8", "rgba_base": "255, 94, 58"}
     }
     
     DEFAULT_THEME = "Neon Green"

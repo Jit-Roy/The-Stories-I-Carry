@@ -98,6 +98,17 @@ class ImageLoader(QRunnable):
         with _loader_lock:
             ACTIVE_LOADERS.add(self)
 
+    @staticmethod
+    def check_mem_cache(url: str):
+        if url and url.startswith("/"):
+            url = f"https://image.tmdb.org/t/p/w500{url}"
+        with _cache_lock:
+            if url in _mem_cache:
+                data = _mem_cache.pop(url)
+                _mem_cache[url] = data
+                return data
+        return None
+
     # Synchronous cache fetching removed to prevent UI thread blocking.
     # ImageLoader.run() handles cache checks asynchronously.
 
@@ -353,16 +364,16 @@ class MovieCard(QWidget):
             self.overlay.hide()
         super().leaveEvent(event)
 
-    def mousePressEvent(self, event):
+    def mouseReleaseEvent(self, event):
         # Prevent clicks on the buttons from triggering the detail page
         clicked_widget = self.childAt(event.pos())
         if clicked_widget in (self.btn_later, self.btn_watched):
-            super().mousePressEvent(event)
+            super().mouseReleaseEvent(event)
             return
             
         if self.on_click:
             self.on_click(self.movie_data)
-        super().mousePressEvent(event)
+        super().mouseReleaseEvent(event)
 
     def load_poster(self):
         url = self.movie_data.get("poster_path")

@@ -60,24 +60,42 @@ class CategoryCard(QWidget):
         self.img = RoundedImage()
         self.img.setFixedSize(160, 240)
         
-        colors = ["#FF5A5F", "#087E8B", "#3C3B3D", "#F5D491", "#C43302"]
+        from ui.theme_manager import ThemeManager
+        colors = [theme["primary"] for theme in ThemeManager.THEMES.values()]
         # Use a stable injected index to prevent timer interleaving from messing up sequences
         idx = data.get("_color_index", hash(data.get("title", "")) % len(colors))
         c = colors[idx % len(colors)]
         
-        self.img.setStyleSheet(f"background-color: {c}; border-radius: 12px;")
+        self.img.setStyleSheet(f"/* NOTHEME */ background-color: {c}; border-radius: 12px;")
         
         if data.get("poster_path"):
             url = data["poster_path"]
             dpr = self.devicePixelRatioF()
-            loader = ImageLoader(url, target_size=(int(160 * dpr), int(240 * dpr)))
-            loader.signals.finished_img.connect(self._apply_image)
-            QThreadPool.globalInstance().start(loader)
+            target_size = (int(160 * dpr), int(240 * dpr))
+            cached_img = ImageLoader.check_mem_cache(url)
+            
+            if cached_img:
+                from PySide6.QtGui import QImage
+                img = QImage()
+                if img.loadFromData(cached_img):
+                    scaled_img = img.scaled(target_size[0], target_size[1], Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                    self._apply_image(scaled_img)
+                else:
+                    self._apply_image(None)
+            else:
+                loader = ImageLoader(url, target_size=target_size)
+                loader.signals.finished_img.connect(self._apply_image)
+                QThreadPool.globalInstance().start(loader)
+                
         elif data.get("logo_path"):
             url = data["logo_path"]
-            loader = ImageLoader(url) # Custom logic for logo scaling, handled in _apply_logo
-            loader.signals.finished.connect(self._apply_logo)
-            QThreadPool.globalInstance().start(loader)
+            cached_logo = ImageLoader.check_mem_cache(url)
+            if cached_logo:
+                self._apply_logo(cached_logo)
+            else:
+                loader = ImageLoader(url) # Custom logic for logo scaling, handled in _apply_logo
+                loader.signals.finished.connect(self._apply_logo)
+                QThreadPool.globalInstance().start(loader)
                 
         # Overlay gradient for text readability
         self.overlay = QWidget(self.img)
@@ -99,11 +117,14 @@ class CategoryCard(QWidget):
         # Hover highlight overlay (hidden by default)
         self.hover_overlay = QWidget(self.img)
         self.hover_overlay.setFixedSize(160, 240)
-        self.hover_overlay.setStyleSheet("""
-            QWidget {
+        from ui.theme_manager import ThemeManager
+        primary = ThemeManager.get_color("primary")
+        self.hover_overlay.setStyleSheet(f"""
+            QWidget {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0,0,0,0.6), stop:0.25 rgba(0,0,0,0), stop:0.75 rgba(0,0,0,0), stop:1 rgba(0,0,0,0.6));
                 border-radius: 12px;
-            }
+                border: 2px solid {primary};
+            }}
         """)
         self.hover_overlay.hide()
         self.hover_overlay.setAttribute(Qt.WA_TransparentForMouseEvents)
@@ -180,18 +201,33 @@ class PersonCard(QWidget):
         if data.get("profile_path"):
             url = data["profile_path"]
             dpr = self.devicePixelRatioF()
-            loader = ImageLoader(url, target_size=(int(self.img_width * dpr), int(self.img_height * dpr)))
-            loader.signals.finished_img.connect(self._apply_image)
-            QThreadPool.globalInstance().start(loader)
+            target_size = (int(self.img_width * dpr), int(self.img_height * dpr))
+            cached_img = ImageLoader.check_mem_cache(url)
+            
+            if cached_img:
+                from PySide6.QtGui import QImage
+                img = QImage()
+                if img.loadFromData(cached_img):
+                    scaled_img = img.scaled(target_size[0], target_size[1], Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                    self._apply_image(scaled_img)
+                else:
+                    self._apply_image(None)
+            else:
+                loader = ImageLoader(url, target_size=target_size)
+                loader.signals.finished_img.connect(self._apply_image)
+                QThreadPool.globalInstance().start(loader)
 
         # Hover highlight overlay on the photo (hidden by default)
         self.hover_overlay = QWidget(self.img)
         self.hover_overlay.setFixedSize(img_width, img_height)
-        self.hover_overlay.setStyleSheet("""
-            QWidget {
+        from ui.theme_manager import ThemeManager
+        primary = ThemeManager.get_color("primary")
+        self.hover_overlay.setStyleSheet(f"""
+            QWidget {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0,0,0,0.6), stop:0.25 rgba(0,0,0,0), stop:0.75 rgba(0,0,0,0), stop:1 rgba(0,0,0,0.6));
                 border-radius: 8px;
-            }
+                border: 2px solid {primary};
+            }}
         """)
         self.hover_overlay.hide()
         self.hover_overlay.setAttribute(Qt.WA_TransparentForMouseEvents)

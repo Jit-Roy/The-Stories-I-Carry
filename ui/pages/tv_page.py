@@ -216,10 +216,7 @@ class TvPage(QWidget):
             def _fetch():
                 return fetch_trending(1)
             worker = _TvSectionWorker("trending_toggle", _fetch)
-            def _done(key, data):
-                if data:
-                    self.trending_carousel.update_items(data)
-            worker.signals.finished.connect(_done)
+            worker.signals.finished.connect(self._on_trending_updated)
             from PySide6.QtCore import QThreadPool
             QThreadPool.globalInstance().start(worker)
 
@@ -228,6 +225,10 @@ class TvPage(QWidget):
 
         self._swap_placeholder("hero", container)
         
+    def _on_trending_updated(self, key, data):
+        if data and hasattr(self, "trending_carousel"):
+            self.trending_carousel.update_items(data)
+            
     def _build_popular(self, popular):
         fetch_fn = tmdb_api.get_popular_tv
         self.popular_carousel = HorizontalCarousel(

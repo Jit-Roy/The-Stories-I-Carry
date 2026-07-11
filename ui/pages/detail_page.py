@@ -595,15 +595,33 @@ class MovieDetailPage(QWidget):
         # ── Start image loaders ───────────────────────────────────────
         def _start_images():
             if movie_data.get("backdrop_path"):
-                bd_loader = ImageLoader(movie_data["backdrop_path"])
-                bd_loader.signals.finished.connect(self.on_backdrop_loaded)
-                QThreadPool.globalInstance().start(bd_loader)
+                bd_url = movie_data["backdrop_path"]
+                cached_bd = ImageLoader.check_mem_cache(bd_url)
+                if cached_bd:
+                    self.on_backdrop_loaded(cached_bd)
+                else:
+                    bd_loader = ImageLoader(bd_url)
+                    bd_loader.signals.finished.connect(self.on_backdrop_loaded)
+                    QThreadPool.globalInstance().start(bd_loader)
 
             if movie_data.get("poster_path"):
                 dpr = self.devicePixelRatioF()
-                poster_loader = ImageLoader(movie_data["poster_path"], target_size=(int(160 * dpr), int(240 * dpr)))
-                poster_loader.signals.finished_img.connect(self.on_poster_loaded)
-                QThreadPool.globalInstance().start(poster_loader)
+                poster_url = movie_data["poster_path"]
+                target_size = (int(160 * dpr), int(240 * dpr))
+                cached_poster = ImageLoader.check_mem_cache(poster_url)
+                
+                if cached_poster:
+                    from PySide6.QtGui import QImage
+                    img = QImage()
+                    if img.loadFromData(cached_poster):
+                        scaled_img = img.scaled(target_size[0], target_size[1], Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                        self.on_poster_loaded(scaled_img)
+                    else:
+                        self.on_poster_loaded(None)
+                else:
+                    poster_loader = ImageLoader(poster_url, target_size=target_size)
+                    poster_loader.signals.finished_img.connect(self.on_poster_loaded)
+                    QThreadPool.globalInstance().start(poster_loader)
 
         # ── Smart Cache Check ─────────────────────────────────────────
         media_type = movie_data.get("media_type", "movie")

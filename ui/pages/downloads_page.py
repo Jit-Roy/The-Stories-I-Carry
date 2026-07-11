@@ -271,9 +271,19 @@ class DownloadItemWidget(QFrame):
         target_w = int(80 * dpr)
         target_h = int(120 * dpr)
         
-        loader = ImageLoader(url, target_size=(target_w, target_h))
-        loader.signals.finished_img.connect(self._apply_image)
-        QThreadPool.globalInstance().start(loader)
+        cached_img = ImageLoader.check_mem_cache(url)
+        if cached_img:
+            from PySide6.QtGui import QImage
+            img = QImage()
+            if img.loadFromData(cached_img):
+                scaled_img = img.scaled(target_w, target_h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                self._apply_image(scaled_img)
+            else:
+                self._apply_image(None)
+        else:
+            loader = ImageLoader(url, target_size=(target_w, target_h))
+            loader.signals.finished_img.connect(self._apply_image)
+            QThreadPool.globalInstance().start(loader)
 
     def _apply_image(self, img):
         if not img: return
