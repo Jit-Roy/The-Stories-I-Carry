@@ -18,6 +18,9 @@ _cache_lock = threading.Lock()
 _loader_lock = threading.Lock()
 ACTIVE_LOADERS = set()
 
+# Global session for connection pooling when fetching images
+_image_session = requests.Session()
+
 
 def _url_to_cache_path(url: str) -> str:
     key = hashlib.md5(url.encode()).hexdigest()
@@ -69,12 +72,14 @@ def _save_to_disk(url: str, data: bytes):
 
 class ImageLoaderSignals(QObject):
     finished = Signal(bytes)
+    finished_img = Signal(object)  # Emits QImage if target_size is provided
 
 
 class ImageLoader(QRunnable):
-    def __init__(self, url):
+    def __init__(self, url: str, target_size: tuple = None):
         super().__init__()
         self.url = url
+        self.target_size = target_size
         self.signals = ImageLoaderSignals()
         with _loader_lock:
             ACTIVE_LOADERS.add(self)
@@ -86,28 +91,47 @@ class ImageLoader(QRunnable):
     def run(self):
         try:
             cached = _get_cached_image(self.url)
+            data = None
             if cached is not None:
-                self.signals.finished.emit(cached)
+                data = cached
+            else:
+                headers = {"User-Agent": "WorldsIveWatched/1.0"}
+                r = _image_session.get(self.url, headers=headers, timeout=10)
+                if r.status_code == 200:
+                    data = r.content
+                    _mem_put(self.url, data)
+                    _save_to_disk(self.url, data)
+                    
+            if not data:
+                try:
+                    self.signals.finished.emit(b"")
+                    self.signals.finished_img.emit(None)
+                except RuntimeError: pass
                 return
-
-            headers = {"User-Agent": "WorldsIveWatched/1.0"}
-            r = requests.get(self.url, headers=headers, timeout=10)
-            if r.status_code == 200:
-                data = r.content
-                _mem_put(self.url, data)
-                _save_to_disk(self.url, data)
+                
+            if self.target_size:
+                from PySide6.QtGui import QImage
+                from PySide6.QtCore import Qt
+                img = QImage()
+                if img.loadFromData(data):
+                    scaled_img = img.scaled(self.target_size[0], self.target_size[1], Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                    try:
+                        self.signals.finished_img.emit(scaled_img)
+                    except RuntimeError: pass
+                else:
+                    try:
+                        self.signals.finished_img.emit(None)
+                    except RuntimeError: pass
+            else:
                 try:
                     self.signals.finished.emit(data)
                 except RuntimeError:
                     pass
-            else:
-                try:
-                    self.signals.finished.emit(b"")
-                except RuntimeError:
-                    pass
+
         except Exception:
             try:
                 self.signals.finished.emit(b"")
+                self.signals.finished_img.emit(None)
             except RuntimeError:
                 pass
         finally:
@@ -312,16 +336,22 @@ class MovieCard(QWidget):
         if not url:
             return
 
-        # Fast path: serve from cache synchronously (avoids spawning a thread)
-        cached = ImageLoader.get_cached_image(url)
-        if cached:
-            self._apply_image(cached)
-            return
+        dpr = self.devicePixelRatioF()
+        target_w = int(160 * dpr)
+        target_h = int(240 * dpr)
 
-        loader = ImageLoader(url)
-        loader.signals.finished.connect(self.on_image_loaded)
+        loader = ImageLoader(url, target_size=(target_w, target_h))
+        loader.signals.finished_img.connect(self.on_scaled_image_loaded)
         QThreadPool.globalInstance().start(loader)
 
+    def on_scaled_image_loaded(self, img):
+        if img:
+            pixmap = QPixmap(img)
+            pixmap.setDevicePixelRatio(self.devicePixelRatioF())
+            self.poster_label.setPixmap(pixmap)
+        else:
+            self._retry_poster()
+            
     def _apply_image(self, image_data: bytes):
         if not image_data:
             return
@@ -337,12 +367,15 @@ class MovieCard(QWidget):
     def on_image_loaded(self, image_data):
         self._apply_image(image_data)
         if not image_data:
-            if not hasattr(self, "image_retries"):
-                self.image_retries = 3
-            if self.image_retries > 0:
-                self.image_retries -= 1
-                from PySide6.QtCore import QTimer
-                QTimer.singleShot(1000, self.load_poster)
+            self._retry_poster()
+            
+    def _retry_poster(self):
+        if not hasattr(self, "image_retries"):
+            self.image_retries = 3
+        if self.image_retries > 0:
+            self.image_retries -= 1
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(1000, self.load_poster)
 
 
 class SeriesFolderCard(QFrame):

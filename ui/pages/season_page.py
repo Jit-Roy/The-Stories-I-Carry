@@ -260,25 +260,18 @@ class EpisodeCard(QFrame):
             return
             
         url = f"https://image.tmdb.org/t/p/w300{path}"
-        cached = ImageLoader.get_cached_image(url)
-        if cached:
-            self.on_image_loaded(cached)
-            return
-            
-        loader = ImageLoader(url)
-        loader.signals.finished.connect(self.on_image_loaded)
+        
+        target_size = (self.img_label.width(), self.img_label.height())
+        loader = ImageLoader(url, target_size=target_size)
+        loader.signals.finished_img.connect(self.on_image_loaded)
         QThreadPool.globalInstance().start(loader)
 
-    def on_image_loaded(self, image_data):
-        if not image_data:
+    def on_image_loaded(self, img):
+        if not img:
             return
             
-        from PySide6.QtGui import QImage, QPixmap
-        img = QImage()
-        if img.loadFromData(image_data):
-            pixmap = QPixmap.fromImage(img)
-            scaled = pixmap.scaled(self.img_label.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-            self.img_label.setPixmap(scaled)
+        from PySide6.QtGui import QPixmap
+        self.img_label.setPixmap(QPixmap(img))
 
     def _on_play(self):
         ep_num = self.episode.get("episode_number", 1)

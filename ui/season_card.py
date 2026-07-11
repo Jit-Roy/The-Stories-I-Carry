@@ -58,28 +58,20 @@ class SeasonCard(QWidget):
             return
             
         url = f"https://image.tmdb.org/t/p/w500{path}"
-        cached = ImageLoader.get_cached_image(url)
-        if cached:
-            self.on_poster_loaded(cached)
-        else:
-            from PySide6.QtCore import QThreadPool
-            self.loader = ImageLoader(url)
-            self.loader.signals.finished.connect(self.on_poster_loaded)
-            QThreadPool.globalInstance().start(self.loader)
+        
+        from PySide6.QtCore import QThreadPool
+        target_size = (self.poster_lbl.width(), self.poster_lbl.height())
+        self.loader = ImageLoader(url, target_size=target_size)
+        self.loader.signals.finished_img.connect(self.on_poster_loaded)
+        QThreadPool.globalInstance().start(self.loader)
             
-    def on_poster_loaded(self, image_data):
-        if not image_data:
+    def on_poster_loaded(self, img):
+        if not img:
             self.poster_lbl.setText("No Image")
             return
             
-        from PySide6.QtGui import QImage, QPixmap
-        img = QImage()
-        if img.loadFromData(image_data):
-            pixmap = QPixmap.fromImage(img)
-            scaled = pixmap.scaled(self.poster_lbl.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-            self.poster_lbl.setPixmap(scaled)
-        else:
-            self.poster_lbl.setText("No Image")
+        from PySide6.QtGui import QPixmap
+        self.poster_lbl.setPixmap(QPixmap(img))
         
     def enterEvent(self, event):
         self.hover_overlay.show()

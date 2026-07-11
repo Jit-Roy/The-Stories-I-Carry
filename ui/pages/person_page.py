@@ -139,16 +139,17 @@ class PersonPage(QWidget):
         img_label.setAlignment(Qt.AlignCenter)
         
         if data.get("profile_path"):
-            try:
-                # Synchronous fetch for simplicity, though could be async
-                r = requests.get(data["profile_path"], timeout=5)
-                if r.status_code == 200:
-                    pixmap = QPixmap()
-                    pixmap.loadFromData(r.content)
-                    pixmap = pixmap.scaled(200, 300, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-                    img_label.setPixmap(pixmap)
-            except:
-                img_label.setText("No Image")
+            # Fetch image asynchronously to prevent UI freezing
+            loader = ImageLoader(data["profile_path"], target_size=(200, 300))
+            def on_img(img, label=img_label):
+                if img:
+                    pixmap = QPixmap(img)
+                    pixmap.setDevicePixelRatio(self.devicePixelRatioF())
+                    label.setPixmap(pixmap)
+                else:
+                    label.setText("No Image")
+            loader.signals.finished_img.connect(on_img)
+            QThreadPool.globalInstance().start(loader)
         else:
             img_label.setText("No Image")
             

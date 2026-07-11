@@ -2,6 +2,14 @@ import sqlite3
 import os
 import sys
 import json
+import threading
+_local_data = threading.local()
+
+def _get_conn():
+    if not hasattr(_local_data, 'conn'):
+        _local_data.conn = sqlite3.connect(DB_NAME, timeout=20)
+    return _local_data.conn
+
 
 # Use global cache directory for all app data
 application_path = os.path.join(os.path.expanduser("~"), ".cache", "tsic")
@@ -10,7 +18,7 @@ os.makedirs(application_path, exist_ok=True)
 DB_NAME = os.path.join(application_path, "movies.db")
 
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = _get_conn()
     cursor = conn.cursor()
     
     # Create movies table
@@ -92,10 +100,9 @@ def init_db():
         pass
 
     conn.commit()
-    conn.close()
 
 def add_movie(tmdb_id, title, poster_path, status, series_name=None, vote_average=None, release_date=None, runtime=None, genres=None, director=None, cast=None, production_companies=None, original_language=None, production_countries=None, media_type='movie'):
-    conn = sqlite3.connect(DB_NAME)
+    conn = _get_conn()
     cursor = conn.cursor()
     
     try:
@@ -122,19 +129,18 @@ def add_movie(tmdb_id, title, poster_path, status, series_name=None, vote_averag
         print(f"Error adding movie: {e}")
         success = False
     finally:
-        conn.close()
+        pass
         
     return success
 
 def remove_movie(tmdb_id, media_type="movie"):
-    conn = sqlite3.connect(DB_NAME)
+    conn = _get_conn()
     cursor = conn.cursor()
     cursor.execute('DELETE FROM movies WHERE tmdb_id = ? AND media_type = ?', (tmdb_id, media_type))
     conn.commit()
-    conn.close()
 
 def get_movies(status=None):
-    conn = sqlite3.connect(DB_NAME)
+    conn = _get_conn()
     cursor = conn.cursor()
     
     if status:
@@ -143,8 +149,7 @@ def get_movies(status=None):
         cursor.execute('SELECT tmdb_id, title, poster_path, status, series_name, vote_average, release_date, runtime, genres, director, "cast", production_companies, original_language, production_countries, media_type FROM movies ORDER BY added_at DESC')
         
     movies = cursor.fetchall()
-    conn.close()
-    
+
     # Return as list of dicts for easier handling
     return [
         {
@@ -168,7 +173,7 @@ def get_movies(status=None):
     ]
 
 def set_series(tmdb_id, series_name, media_type="movie"):
-    conn = sqlite3.connect(DB_NAME)
+    conn = _get_conn()
     cursor = conn.cursor()
     # convert empty strings to None
     series_name = series_name.strip() if series_name and series_name.strip() else None
@@ -176,19 +181,17 @@ def set_series(tmdb_id, series_name, media_type="movie"):
         UPDATE movies SET series_name = ? WHERE tmdb_id = ? AND media_type = ?
     ''', (series_name, tmdb_id, media_type))
     conn.commit()
-    conn.close()
 
 def get_setting(key, default=None):
-    conn = sqlite3.connect(DB_NAME)
+    conn = _get_conn()
     cursor = conn.cursor()
     cursor.execute('SELECT value FROM settings WHERE key = ?', (key,))
     row = cursor.fetchone()
-    conn.close()
+
     return row[0] if row else default
 
 def set_setting(key, value):
-    conn = sqlite3.connect(DB_NAME)
+    conn = _get_conn()
     cursor = conn.cursor()
     cursor.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, value))
     conn.commit()
-    conn.close()

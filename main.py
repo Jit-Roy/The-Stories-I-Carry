@@ -62,6 +62,10 @@ def main():
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon("assets/icons/app_icon.ico"))
     
+    # Increase maximum threads to ensure parallel image fetching & scaling without blocking
+    from PySide6.QtCore import QThreadPool
+    QThreadPool.globalInstance().setMaxThreadCount(30)
+    
     # Pre-load themes to ensure SVGs are customized
     from ui.theme_manager import ThemeManager
     ThemeManager.load_theme()

@@ -234,11 +234,14 @@ class HeroBanner(QWidget):
     def paintEvent(self, event):
         from PySide6.QtGui import QColor, QPainter, QImage, QPixmap
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.SmoothPixmapTransform)
         
         if hasattr(self, "_bg_pixmap") and not self._bg_pixmap.isNull():
-            # Scale dynamically to the current size, keeping aspect ratio by expanding
-            scaled = self._bg_pixmap.scaled(self.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+            # Cache the scaled pixmap to avoid expensive scaling on every frame (60fps during animations)
+            if not hasattr(self, "_scaled_pixmap") or getattr(self, "_last_size", None) != self.size():
+                self._scaled_pixmap = self._bg_pixmap.scaled(self.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                self._last_size = self.size()
+                
+            scaled = self._scaled_pixmap
             
             # Center the image to crop evenly
             x = (scaled.width() - self.width()) // 2

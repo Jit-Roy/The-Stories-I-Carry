@@ -37,8 +37,11 @@ def set_api_key(new_key):
 # ---------------------------------------------------------------------------
 _search_cache = {}
 _details_cache = {}          # movie_id -> full details dict
+_person_credits_cache = {}
 _db_status_cache = None      # None means "dirty / needs refresh"
 
+# Global session for connection pooling (Keep-Alive)
+_session = requests.Session()
 
 def _get_db_status_map():
     """Return the cached DB status map, refreshing only when dirty."""
@@ -87,7 +90,7 @@ def _make_request(endpoint, params=None, retries=3):
     }
     for attempt in range(retries):
         try:
-            response = requests.get(
+            response = _session.get(
                 f"{BASE_URL}{endpoint}", params=params, headers=headers, timeout=10
             )
             response.raise_for_status()
