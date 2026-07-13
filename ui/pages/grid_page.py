@@ -373,5 +373,6 @@ class GridPage(QWidget):
                 if isinstance(widget, MovieCard):
                     # Inject the latest status
                     movie_id = widget.movie_data.get("id")
-                    widget.movie_data["status"] = db_cache.get(movie_id)
+                    m_type = widget.movie_data.get("media_type", "movie")
+                    widget.movie_data["status"] = db_cache.get(f"{m_type}_{movie_id}")
                     widget.update_buttons()
